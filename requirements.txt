@@ -1,25 +1,6 @@
-# Optimized requirements for PythonAnywhere (512MB limit)
-# Core web framework
+# Basic requirements for Vercel deployment
 Flask==2.3.3
 Flask-CORS==4.0.0
-Flask-Mail==0.9.1
-Werkzeug==2.3.7
-
-# Lightweight ML libraries 
-numpy==1.24.3
-scikit-learn==1.3.0
-joblib==1.3.2
-
-# Utilities
 python-dotenv==1.0.0
 requests==2.31.0
-
-# Optional: pandas (only if needed, uses more memory)
-# pandas==2.0.3
-
-# Heavy libraries disabled for memory optimization
-# tensorflow - requires ~300MB+ memory
-# torch - requires ~400MB+ memory  
-# matplotlib - can be added if visualization needed
-# seaborn - additional 50MB+
-
+PyJWT==2.8.0
