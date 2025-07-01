@@ -1,20 +1,32 @@
 {
   "functions": {
-    "api/*.py": {
-      "runtime": "python3.9"
+    "api/**/*.py": {
+      "runtime": "@vercel/python"
     }
   },
   "rewrites": [
     { "source": "/api/auth/login", "destination": "/api/auth" },
     { "source": "/api/dashboard", "destination": "/api/dashboard" },
+    { "source": "/api/users/(.*)", "destination": "/api/users" },
     { "source": "/api/users", "destination": "/api/users" },
-    { "source": "/api/status", "destination": "/api/status" },
+    { "source": "/api/status", "destination": "/api/predict" },
     { "source": "/api/predict", "destination": "/api/predict" },
-    { "source": "/api/test", "destination": "/api/test" },
-    { "source": "/static/(.*)", "destination": "/static/$1" },
-    { "source": "/login", "destination": "/api/index?page=login" },
-    { "source": "/users", "destination": "/api/index?page=users" },
-    { "source": "/", "destination": "/api/index?page=dashboard" },
-    { "source": "/(.*)", "destination": "/api/index?page=$1" }
+    { "source": "/api/data", "destination": "/api/dashboard" },
+    { "source": "/api/feedback", "destination": "/api/dashboard" },
+    { "source": "/api/test", "destination": "/api/index" },
+    { "source": "/health", "destination": "/api/index" },
+    { "source": "/login", "destination": "/api/index" },
+    { "source": "/dashboard", "destination": "/api/index" },
+    { "source": "/", "destination": "/api/index" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
+    }
   ]
 }

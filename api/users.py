@@ -1,83 +1,35 @@
 import os
-import sys
-import json
 import sqlite3
 import logging
-from datetime import datetime
-import jwt
-
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+from auth import require_auth, get_db_connection
 
 app = Flask(__name__)
-CORS(app)
-
-DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///svnbot.db')
-SECRET_KEY = os.environ.get('SECRET_KEY', 'temp-key')
-
-def get_db_connection():
-    if DATABASE_URL.startswith('postgresql'):
-        import psycopg2
-        return psycopg2.connect(DATABASE_URL)
-    else:
-        db_path = DATABASE_URL.replace('sqlite:///', '')
-        return sqlite3.connect(db_path)
-
-def verify_token(token):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-        return payload['email']
-    except:
-        return None
-
-def require_auth(f):
-    def decorated_function(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-        if not auth_header:
-            return jsonify({'error': 'No authorization header'}), 401
-        
-        try:
-            token = auth_header.split(' ')[1]
-            email = verify_token(token)
-            if not email:
-                return jsonify({'error': 'Invalid token'}), 401
-            request.user_email = email
-            return f(*args, **kwargs)
-        except:
-            return jsonify({'error': 'Invalid authorization'}), 401
-    
-    decorated_function.__name__ = f.__name__
-    return decorated_function
 
 @app.route('/api/users', methods=['GET'])
 @require_auth
 def api_users():
+    """Get all users/bots with their statistics"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Get users with their stats
+        # Get users with their statistics
         cursor.execute('''
-            SELECT u.id, u.registration_date, u.last_activity, u.total_trades, u.profit,
-                   COUNT(t.id) as recent_trades,
-                   AVG(CASE WHEN t.profit > 0 THEN 1.0 ELSE 0.0 END) * 100 as win_rate
+            SELECT 
+                u.id, u.registration_date, u.last_activity, u.total_trades, u.profit,
+                (SELECT COUNT(*) FROM trades t WHERE t.user_id = u.id AND DATE(t.timestamp) = DATE('now')) as recent_trades,
+                (SELECT AVG(CASE WHEN profit > 0 THEN 100 ELSE 0 END) FROM trades t WHERE t.user_id = u.id) as win_rate
             FROM users u
-            LEFT JOIN trades t ON u.id = t.user_id AND t.timestamp > datetime('now', '-7 days')
-            GROUP BY u.id
             ORDER BY u.last_activity DESC
-        ''') if hasattr(cursor, 'execute') else None
+        ''')
+        users_data = cursor.fetchall()
         
-        users_data = cursor.fetchall() if cursor else []
-        conn.close() if conn else None
-        
-        # Format users data
         users = []
         for user in users_data:
             users.append({
-                'user_id': user[0],
+                'id': user[0],
                 'registration_date': user[1],
                 'last_activity': user[2],
                 'total_trades': user[3] or 0,
@@ -106,36 +58,42 @@ def api_users():
 @app.route('/api/users/<user_id>/details', methods=['GET'])
 @require_auth
 def user_details(user_id):
+    """Get detailed information about a specific user/bot"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
         # Get user details
-        cursor.execute('''
-            SELECT id, registration_date, last_activity, total_trades, profit
-            FROM users WHERE id = ?
-        ''', (user_id,)) if hasattr(cursor, 'execute') else None
-        
-        user = cursor.fetchone() if cursor else None
+        cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
-        # Get trade history for profit chart
+        # Get recent trades
+        cursor.execute('''
+            SELECT timestamp, symbol, signal, profit, confidence
+            FROM trades 
+            WHERE user_id = ? 
+            ORDER BY timestamp DESC 
+            LIMIT 20
+        ''', (user_id,))
+        recent_trades = cursor.fetchall()
+        
+        # Get profit history (last 30 days)
         cursor.execute('''
             SELECT DATE(timestamp) as date, SUM(profit) as daily_profit
             FROM trades 
-            WHERE user_id = ? 
+            WHERE user_id = ? AND timestamp >= datetime('now', '-30 days')
             GROUP BY DATE(timestamp)
-            ORDER BY date DESC
-            LIMIT 30
-        ''', (user_id,)) if hasattr(cursor, 'execute') else None
+            ORDER BY date
+        ''', (user_id,))
+        profit_history = cursor.fetchall()
         
-        profit_history = cursor.fetchall() if cursor else []
-        conn.close() if conn else None
+        conn.close()
         
         return jsonify({
-            'user_id': user[0],
+            'id': user[0],
             'registration_date': user[1],
             'last_activity': user[2],
             'balance': (user[4] or 0) + 1000,
@@ -154,6 +112,44 @@ def user_details(user_id):
         logging.error(f"User details error: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/users/<user_id>/trades', methods=['GET'])
+@require_auth
+def user_trades(user_id):
+    """Get trade history for a specific user"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT timestamp, symbol, signal, profit, confidence
+            FROM trades 
+            WHERE user_id = ? 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+        ''', (user_id, limit))
+        
+        trades = cursor.fetchall()
+        conn.close()
+        
+        trades_data = []
+        for trade in trades:
+            trades_data.append({
+                'timestamp': trade[0],
+                'symbol': trade[1],
+                'signal': trade[2],
+                'profit': trade[3],
+                'confidence': trade[4]
+            })
+        
+        return jsonify({'trades': trades_data})
+        
+    except Exception as e:
+        logging.error(f"User trades error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 # Serverless function handler
 def handler(request):
-    return app(request.environ, lambda *args: None)
+    with app.app_context():
+        return app(request.environ, lambda *args: None)

@@ -4,3 +4,6 @@ Flask-CORS==4.0.0
 python-dotenv==1.0.0
 requests==2.31.0
 PyJWT==2.8.0
+
+# Additional dependencies - compatible with Python 3.13
+numpy>=1.25.0
