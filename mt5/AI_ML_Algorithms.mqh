@@ -7,7 +7,6 @@
 #ifndef AI_ML_ALGORITHMS_MQH
 #define AI_ML_ALGORITHMS_MQH
 
-// Include Config first to get constants
 #include "Config.mqh"
 
 //+------------------------------------------------------------------+
@@ -59,7 +58,6 @@ private:
     bool m_isConnected;
     datetime m_lastConnectionCheck;
     
-    // Helper methods
     bool ValidateServerConnection();
     string ParseJsonValue(string json, string key);
     bool IsValidFeatureSet(CArrayDouble &features);
@@ -68,13 +66,11 @@ public:
     CAIPredictor(string serverUrl, string apiKey);
     ~CAIPredictor();
     
-    // Main methods
     int GetPrediction(CArrayDouble &features, double &confidence);
     bool SendFeedback(string tradeId, double profit, bool isSuccessful);
     bool PrepareFeatures(CArrayDouble &features, string symbol, ENUM_TIMEFRAMES timeframe);
     bool SendTrainingData(CArrayDouble &features, int signal, double result);
     
-    // Status methods
     bool IsConnected() { return m_isConnected; }
     string GetServerUrl() { return m_serverUrl; }
     bool TestConnection();
@@ -90,7 +86,6 @@ CAIPredictor::CAIPredictor(string serverUrl, string apiKey)
     m_isConnected = false;
     m_lastConnectionCheck = 0;
     
-    // Test initial connection
     TestConnection();
 }
 
@@ -113,7 +108,6 @@ bool CAIPredictor::TestConnection()
         return false;
     }
     
-    // Simple ping test
     string headers = "Content-Type: application/json\r\nAuthorization: Bearer " + m_apiKey + "\r\n";
     string jsonData = "{\"test\":\"ping\"}";
     
@@ -136,15 +130,13 @@ int CAIPredictor::GetPrediction(CArrayDouble &features, double &confidence)
 {
     confidence = 0.0;
     
-    // Validate inputs
     if(!IsValidFeatureSet(features))
     {
         Print("Error: Invalid feature set for prediction");
         return 0;
     }
     
-    // Check connection
-    if(!m_isConnected || (TimeCurrent() - m_lastConnectionCheck) > 300) // 5 minutes
+    if(!m_isConnected || (TimeCurrent() - m_lastConnectionCheck) > 300) 
     {
         if(!TestConnection())
         {
@@ -156,7 +148,6 @@ int CAIPredictor::GetPrediction(CArrayDouble &features, double &confidence)
     string headers = "Content-Type: application/json\r\nAuthorization: Bearer " + m_apiKey + "\r\n";
     string jsonData = "{\"features\":[";
     
-    // Build features array
     for(int i = 0; i < features.Total(); i++)
     {
         jsonData += DoubleToString(features.At(i), 6);
@@ -174,7 +165,6 @@ int CAIPredictor::GetPrediction(CArrayDouble &features, double &confidence)
     {
         string response = CharArrayToString(result);
         
-        // Parse JSON response safely
         string predStr = ParseJsonValue(response, "prediction");
         string confStr = ParseJsonValue(response, "confidence");
         
@@ -183,7 +173,6 @@ int CAIPredictor::GetPrediction(CArrayDouble &features, double &confidence)
             confidence = StringToDouble(confStr);
             int prediction = (int)StringToInteger(predStr);
             
-            // Validate prediction range
             if(prediction >= -1 && prediction <= 1 && confidence >= 0.0 && confidence <= 1.0)
             {
                 return prediction;
@@ -196,7 +185,7 @@ int CAIPredictor::GetPrediction(CArrayDouble &features, double &confidence)
         m_isConnected = false;
     }
     
-    return 0; // Default HOLD
+    return 0; 
 }
 
 //+------------------------------------------------------------------+
@@ -233,7 +222,6 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
 {
     features.Clear();
     
-    // Get market data with error checking
     double close[], high[], low[], open[], volume[];
     
     if(CopyClose(symbol, timeframe, 0, 50, close) < 50) 
@@ -262,14 +250,13 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
         return false;
     }
     
-    // Basic price features with safety checks
     double currentClose = close[ArraySize(close) - 1];
     double prevClose = close[ArraySize(close) - 2];
     
     if(prevClose > 0)
     {
-        features.Add(currentClose); // Current price
-        features.Add((currentClose - prevClose) / prevClose); // Price change %
+        features.Add(currentClose); 
+        features.Add((currentClose - prevClose) / prevClose); 
     }
     else
     {
@@ -277,7 +264,6 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
         features.Add(0.0);
     }
     
-    // Volatility
     double currentHigh = high[ArraySize(high) - 1];
     double currentLow = low[ArraySize(low) - 1];
     if(currentClose > 0)
@@ -285,13 +271,12 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
     else
         features.Add(0.0);
     
-    // Technical indicators with handle management
     int rsiHandle = iRSI(symbol, timeframe, 14, PRICE_CLOSE);
     if(rsiHandle != INVALID_HANDLE)
     {
         double rsi[];
         if(CopyBuffer(rsiHandle, 0, 0, 1, rsi) > 0)
-            features.Add(rsi[0] / 100.0); // Normalize to 0-1
+            features.Add(rsi[0] / 100.0); 
         else
             features.Add(0.5);
         IndicatorRelease(rsiHandle);
@@ -299,7 +284,6 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
     else
         features.Add(0.5);
     
-    // MACD
     int macdHandle = iMACD(symbol, timeframe, 12, 26, 9, PRICE_CLOSE);
     if(macdHandle != INVALID_HANDLE)
     {
@@ -325,7 +309,6 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
         features.Add(0.0);
     }
     
-    // Moving Averages
     int ma20Handle = iMA(symbol, timeframe, 20, 0, MODE_SMA, PRICE_CLOSE);
     if(ma20Handle != INVALID_HANDLE)
     {
@@ -352,7 +335,6 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
     else
         features.Add(0.0);
     
-    // Bollinger Bands
     int bbHandle = iBands(symbol, timeframe, 20, 0, 2.0, PRICE_CLOSE);
     if(bbHandle != INVALID_HANDLE)
     {
@@ -364,8 +346,8 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
             double bbWidth = bbUpper[0] - bbLower[0];
             if(bbWidth > 0)
             {
-                features.Add((currentClose - bbLower[0]) / bbWidth); // BB Position
-                features.Add(bbWidth / bbMiddle[0]); // BB Width
+                features.Add((currentClose - bbLower[0]) / bbWidth); 
+                features.Add(bbWidth / bbMiddle[0]); 
             }
             else
             {
@@ -386,7 +368,6 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
         features.Add(0.1);
     }
     
-    // ATR
     int atrHandle = iATR(symbol, timeframe, 14);
     if(atrHandle != INVALID_HANDLE)
     {
@@ -400,7 +381,6 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
     else
         features.Add(0.01);
     
-    // Volume analysis
     if(ArraySize(volume) >= 5)
     {
         double avgVolume = 0;
@@ -416,13 +396,11 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
     else
         features.Add(1.0);
     
-    // Time-based features
     MqlDateTime dt;
     TimeToStruct(TimeCurrent(), dt);
     features.Add((double)dt.hour / 24.0);
     features.Add((double)dt.day_of_week / 7.0);
     
-    // Momentum
     if(ArraySize(close) >= 10)
     {
         double momentum5 = (currentClose - close[ArraySize(close) - 6]) / close[ArraySize(close) - 6];
@@ -436,7 +414,6 @@ bool CAIPredictor::PrepareFeatures(CArrayDouble &features, string symbol, ENUM_T
         features.Add(0.0);
     }
     
-    // Support/Resistance
     double highest = high[0];
     double lowest = low[0];
     for(int i = 1; i < MathMin(20, ArraySize(high)); i++)
@@ -496,11 +473,10 @@ bool CAIPredictor::IsValidFeatureSet(CArrayDouble &features)
     if(features.Total() < FEATURE_COUNT)
         return false;
     
-    // Check for NaN or infinite values
     for(int i = 0; i < features.Total(); i++)
     {
         double val = features.At(i);
-        if(val != val || val == EMPTY_VALUE) // NaN check
+        if(val != val || val == EMPTY_VALUE) 
             return false;
     }
     
@@ -518,7 +494,6 @@ string CAIPredictor::ParseJsonValue(string json, string key)
     
     start += StringLen(searchKey);
     
-    // Skip whitespace and quotes
     while(start < StringLen(json) && (StringGetCharacter(json, start) == ' ' || StringGetCharacter(json, start) == '"'))
         start++;
     

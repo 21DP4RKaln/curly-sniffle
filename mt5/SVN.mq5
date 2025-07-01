@@ -8,21 +8,18 @@
 #property version   "1.00"
 #property strict
 
-#include <Trade\Trade.mqh>
-#include <Trade\PositionInfo.mqh>
-#include <Trade\AccountInfo.mqh>
-#include <Trade\SymbolInfo.mqh>
-#include <Arrays\ArrayDouble.mqh>
-#include <Arrays\ArrayInt.mqh>
+#include <Trade/Trade.mqh>
+#include <Trade/PositionInfo.mqh>
+#include <Trade/AccountInfo.mqh>
+#include <Trade/SymbolInfo.mqh>
 
 #include "Config.mqh"
 #include "AI_ML_Algorithms.mqh"
 
-// Экспертные параметры
 input group "=== AI Configuration ==="
-input string   ServerURL = "https://sitvain.pythonanywhere.com/api";  
+input string   ServerURL = "https://curly-sniffle-q7raztsih-21dp4rkalns-projects.vercel.app/api";  
 input string   APIKey = "61c2f3467e03e633d25a9bbc3caf05ed990aa6eaa59d2435601309148e48892f";                       
-input bool     EnableLearning = true;                        
+input bool     EnableLearning = true;
 input int      DataSendInterval = 60;
 
 input group "=== Trading Parameters ==="
@@ -74,11 +71,11 @@ double currentDrawdown = 0;
 int totalTrades = 0;
 int winningTrades = 0;
 
-CArrayDouble priceHistory;
-CArrayDouble volumeHistory;
-CArrayInt signalHistory;
+// Using custom array implementations from AI_ML_Algorithms.mqh
+// CArrayDouble priceHistory;
+// CArrayDouble volumeHistory; 
+// CArrayInt signalHistory;
 
-// Trade tracking variables
 struct TradeInfo
 {
     string id;
@@ -107,7 +104,6 @@ int OnInit()
         return INIT_FAILED;
     }
     
-    // Initialize AI predictor
     if(aiPredictor != NULL)
     {
         delete aiPredictor;
@@ -121,7 +117,6 @@ int OnInit()
         return INIT_FAILED;
     }
     
-    // Test AI connection
     if(aiPredictor.TestConnection())
         Print("AI сервер подключен успешно");
     else
@@ -132,7 +127,6 @@ int OnInit()
     
     ArrayResize(marketHistory, LearningPeriod);
     
-    // Initialize trade tracking
     for(int i = 0; i < 10; i++)
     {
         activeTrades[i].isActive = false;
@@ -154,7 +148,6 @@ void OnDeinit(const int reason)
     SaveAIData();
     SendDataToServer();
     
-    // Cleanup AI predictor
     if(aiPredictor != NULL)
     {
         delete aiPredictor;
@@ -169,7 +162,6 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    // Check position status first and update tracking
     CheckPositionStatus();
     
     UpdateMarketData();
@@ -184,7 +176,6 @@ void OnTick()
     if(EnableLearning)
         TrainAI();
     
-    // Send data to server periodically
     if(TimeCurrent() - lastDataSend >= DataSendInterval)
     {
         SendDataToServer();
@@ -197,14 +188,12 @@ void OnTick()
 //+------------------------------------------------------------------+
 void CheckPositionStatus()
 {
-    // Check if any tracked positions have closed
     for(int i = 0; i < activeTradesCount; i++)
     {
         if(activeTrades[i].isActive)
         {
             bool positionExists = false;
             
-            // Check if position still exists
             for(int j = 0; j < PositionsTotal(); j++)
             {
                 if(posInfo.SelectByIndex(j) && 
@@ -216,16 +205,14 @@ void CheckPositionStatus()
                 }
             }
             
-            // If position no longer exists, it was closed
             if(!positionExists)
             {
-                // Calculate result based on last known price
                 double currentPrice = (activeTrades[i].signal == 1) ? symInfo.Bid() : symInfo.Ask();
                 bool isWin = false;
                 
-                if(activeTrades[i].signal == 1) // BUY
+                if(activeTrades[i].signal == 1) 
                     isWin = currentPrice > activeTrades[i].openPrice;
-                else if(activeTrades[i].signal == -1) // SELL
+                else if(activeTrades[i].signal == -1) 
                     isWin = currentPrice < activeTrades[i].openPrice;
                 
                 UpdateTradeStatus(activeTrades[i].id, currentPrice, isWin);
@@ -334,7 +321,6 @@ int AnalyzeWithAI()
     if(ArraySize(marketHistory) < 10)
         return 0;
     
-    // Use improved AI predictor if available
     if(aiPredictor != NULL)
     {
         CArrayDouble features;
@@ -343,7 +329,7 @@ int AnalyzeWithAI()
             double confidence;
             int serverPrediction = aiPredictor.GetPrediction(features, confidence);
             
-            if(confidence > 0.6) // Only trade with high confidence
+            if(confidence > 0.6) 
             {
                 Print("AI предсказание: ", serverPrediction, " с уверенностью: ", confidence);
                 return serverPrediction;
@@ -360,7 +346,6 @@ int AnalyzeWithAI()
         }
     }
     
-    // Fallback to local neural network
     double inputs[20];
     int lastIndex = ArraySize(marketHistory) - 1;
     
@@ -382,7 +367,6 @@ int AnalyzeWithAI()
             maxIndex = i;
     }
     
-    // Add confidence threshold for local prediction
     double confidence = outputs[maxIndex];
     if(confidence < 0.6)
     {
@@ -438,7 +422,6 @@ bool RiskManagement()
     double accountBalance = accInfo.Balance();
     double accountEquity = accInfo.Equity();
     
-    // Avoid division by zero
     if(accountBalance <= 0)
     {
         Print("Ошибка: Баланс счета некорректен");
@@ -450,14 +433,12 @@ bool RiskManagement()
     if(currentDrawdown > maxDrawdown)
         maxDrawdown = currentDrawdown;
     
-    // Risk control
     if(currentDrawdown > MaxRisk * 100)
     {
         Print("Превышен максимальный риск: ", currentDrawdown, "%. Торговля остановлена.");
         return false;
     }
     
-    // Time-based restrictions
     MqlDateTime dt;
     TimeCurrent(dt);
     
@@ -467,24 +448,21 @@ bool RiskManagement()
         return false;
     }
     
-    // Friday evening restriction
     if(dt.day_of_week == 5 && dt.hour >= 20)
     {
         Print("Торговля приостановлена: пятничный вечер");
         return false;
     }
     
-    // Spread control
     double spread = symInfo.Spread() * symInfo.Point();
     double avgSpread = CalculateAverageSpread();
     
-    if(spread > avgSpread * 2.5)  // More conservative spread limit
+    if(spread > avgSpread * 2.5)  
     {
         Print("Спред слишком широкий: ", spread, " vs средний: ", avgSpread);
         return false;
     }
     
-    // Maximum positions check
     int currentPositions = 0;
     for(int i = 0; i < PositionsTotal(); i++)
     {
@@ -541,7 +519,6 @@ void OpenBuyPosition()
     double sl = price - StopLoss * symInfo.Point();
     double tp = price + TakeProfit * symInfo.Point();
     
-    // Validate price levels
     double minStopLevel = symInfo.StopsLevel() * symInfo.Point();
     if((price - sl) < minStopLevel)
     {
@@ -556,7 +533,6 @@ void OpenBuyPosition()
     
     double lotSize = CalculatePositionSize(price - sl);
     
-    // Additional lot size validation
     if(lotSize < symInfo.LotsMin())
     {
         Print("Размер лота слишком мал: ", lotSize, ", используется минимальный: ", symInfo.LotsMin());
@@ -586,7 +562,6 @@ void OpenSellPosition()
     double sl = price + StopLoss * symInfo.Point();
     double tp = price - TakeProfit * symInfo.Point();
     
-    // Validate price levels
     double minStopLevel = symInfo.StopsLevel() * symInfo.Point();
     if((sl - price) < minStopLevel)
     {
@@ -601,7 +576,6 @@ void OpenSellPosition()
     
     double lotSize = CalculatePositionSize(sl - price);
     
-    // Additional lot size validation
     if(lotSize < symInfo.LotsMin())
     {
         Print("Размер лота слишком мал: ", lotSize, ", используется минимальный: ", symInfo.LotsMin());
@@ -632,7 +606,6 @@ double CalculatePositionSize(double riskDistance)
     double tickValue = symInfo.TickValue();
     double tickSize = symInfo.TickSize();
     
-    // Safety checks
     if(riskDistance <= 0 || tickSize <= 0 || tickValue <= 0)
     {
         Print("Ошибка в расчете размера позиции: некорректные параметры");
@@ -646,14 +619,11 @@ double CalculatePositionSize(double riskDistance)
     double maxLot = symInfo.LotsMax();
     double lotStep = symInfo.LotsStep();
     
-    // Ensure lot step compliance
     if(lotStep > 0)
         positionSize = MathRound(positionSize / lotStep) * lotStep;
     
-    // Apply limits
     positionSize = MathMax(minLot, MathMin(maxLot, positionSize));
     
-    // Additional safety: never risk more than specified lot size
     if(LotSize > 0)
         positionSize = MathMin(positionSize, LotSize);
     
@@ -731,7 +701,6 @@ void SendDataToServer()
     char result[];
     string resultHeaders;
     
-    // Отправляем данные через WebRequest
     string url = ServerURL + "/api/data";
     int httpResult = WebRequest("POST", url, headers, 5000, post, result, resultHeaders);
     
@@ -744,14 +713,15 @@ void SendDataToServer()
     else
     {
         Print("Ошибка отправки данных на сервер. Код: ", httpResult);
-        // Сохраняем данные локально для повторной отправки
         FileWrite("ai_data_backup.json", jsonData);
     }
     
-    // Также сохраняем для локального анализа
     FileWrite("ai_data.json", jsonData);
 }
 
+//+------------------------------------------------------------------+
+//| Создание JSON данных для отправки                               |
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| Создание JSON данных для отправки                               |
 //+------------------------------------------------------------------+
@@ -847,7 +817,6 @@ int GetAIPrediction()
     if(StringLen(ServerURL) == 0 || ArraySize(marketHistory) < 10)
         return 0;
     
-    // Подготавливаем данные для отправки
     string jsonData = "{\"features\":[";
     int lastIndex = ArraySize(marketHistory) - 1;
     
@@ -875,21 +844,19 @@ int GetAIPrediction()
     {
         string response = CharArrayToString(result);
         
-        // Простой парсинг JSON ответа
         int predStart = StringFind(response, "\"prediction\":");
         if(predStart >= 0)
         {
             string predStr = StringSubstr(response, predStart + 13, 2);
             int prediction = (int)StringToInteger(predStr);
             
-            // Преобразуем предсказание в торговый сигнал
-            if(prediction == 2) return 1;   // BUY
-            else if(prediction == 0) return -1; // SELL
-            else return 0; // HOLD
+            if(prediction == 2) return 1;   
+            else if(prediction == 0) return -1; 
+            else return 0;
         }
     }
     
-    return 0; // Default HOLD
+    return 0; 
 }
 
 //+------------------------------------------------------------------+
@@ -1062,12 +1029,11 @@ void UpdateTradeStatus(string tradeId, double closePrice, bool isWin)
         if(activeTrades[i].id == tradeId && activeTrades[i].isActive)
         {
             double profit = 0;
-            if(activeTrades[i].signal == 1) // BUY
+            if(activeTrades[i].signal == 1) 
                 profit = (closePrice - activeTrades[i].openPrice) * activeTrades[i].lot * 100000;
-            else if(activeTrades[i].signal == -1) // SELL
+            else if(activeTrades[i].signal == -1) 
                 profit = (activeTrades[i].openPrice - closePrice) * activeTrades[i].lot * 100000;
             
-            // Send feedback using improved AI predictor
             if(aiPredictor != NULL)
             {
                 if(!aiPredictor.SendFeedback(tradeId, profit, isWin))
@@ -1078,15 +1044,12 @@ void UpdateTradeStatus(string tradeId, double closePrice, bool isWin)
             }
             else
             {
-                // Fallback to direct server communication
                 SendTradeResultToServer(tradeId, profit, isWin, activeTrades[i].signal);
             }
             
-            // Update statistics
             if(isWin) winningTrades++;
             dailyProfit += profit;
             
-            // Mark trade as inactive
             activeTrades[i].isActive = false;
             
             Print("Сделка закрыта: ID=", tradeId, " Прибыль=", profit, " Успешная=", isWin);

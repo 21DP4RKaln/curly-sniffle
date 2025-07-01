@@ -7,7 +7,6 @@ import os
 import json
 import secrets
 import jwt
-import random
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify
@@ -29,6 +28,7 @@ class SimpleAIPredictor:
         self.training_data = []
     
     def predict(self, features):
+        import random
         # Simple prediction logic based on features
         prediction = random.choice([-1, 0, 1])  # SELL, HOLD, BUY
         confidence = round(random.uniform(0.6, 0.95), 2)
@@ -87,55 +87,35 @@ def health():
     })
 
 @app.route('/api/predict', methods=['POST'])
+@require_api_key
 def predict():
-    """AI prediction endpoint for MT5 bot - simplified version"""
-    return jsonify({
-        'prediction': 1,
-        'signal': 'BUY',
-        'confidence': 0.75,
-        'status': 'success'
-    })
-
-@app.route('/api/predict2', methods=['POST'])
-def predict2():
-    """Alternative prediction endpoint for testing"""
+    """AI prediction endpoint for MT5 bot"""
     try:
-        # Manual authentication check
-        auth_header = request.headers.get('Authorization', '')
-        if not auth_header.startswith('Bearer '):
-            return jsonify({'error': 'Missing Authorization header'}), 401
-        
-        token = auth_header.replace('Bearer ', '')
-        if token != API_KEY:
-            return jsonify({'error': 'Invalid API key'}), 401
-        
-        # Get JSON data
-        try:
-            data = request.get_json()
-        except:
-            return jsonify({'error': 'Invalid JSON data'}), 400
-            
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-            
+        data = request.get_json()
         features = data.get('features', [])
-        if len(features) < 10:
-            return jsonify({'error': f'Need at least 10 features, got {len(features)}'}), 400
+        symbol = data.get('symbol', 'UNKNOWN')
         
-        # Simple hardcoded prediction for now
-        prediction = 1  # BUY
-        confidence = 0.75
-        signal = "BUY"
+        if not features or len(features) < 10:
+            return jsonify({'error': 'Insufficient features provided'}), 400
         
-        return jsonify({
-            'prediction': prediction,
-            'signal': signal,
-            'confidence': confidence,
-            'status': 'success'
-        })
+        # Get AI prediction
+        result = ai_predictor.predict(features)
+        
+        # Store prediction for tracking
+        prediction_record = {
+            'timestamp': datetime.now().isoformat(),
+            'symbol': symbol,
+            'features': features,
+            'prediction': result['prediction'],
+            'signal': result['signal'],
+            'confidence': result['confidence']
+        }
+        predictions_cache[f"{symbol}_{datetime.now().timestamp()}"] = prediction_record
+        
+        return jsonify(result)
         
     except Exception as e:
-        return jsonify({'error': f'Internal error: {str(e)}'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/feedback', methods=['POST'])
 @require_api_key
@@ -244,7 +224,9 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 # For Vercel
-app = app
+def handler(event, context):
+    """Vercel serverless handler"""
+    return app(event, context)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
