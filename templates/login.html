@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Вход - SVN bot{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white text-center">
+                <h4><i class="fas fa-lock me-2"></i>Безопасный вход</h4>
+                <p class="mb-0">Доступ только для авторизованных пользователей</p>
+            </div>
+            <div class="card-body">
+                <div id="login-form">
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email адрес</label>
+                        <input type="email" class="form-control" id="email" required 
+                               placeholder="Введите ваш email">
+                        <div class="form-text">
+                            Код доступа будет отправлен на указанный email
+                        </div>
+                    </div>
+                    <button onclick="sendCode()" class="btn btn-primary w-100">
+                        <i class="fas fa-envelope me-2"></i>Отправить код
+                    </button>
+                </div>
+                
+                <div id="code-form" style="display: none;">
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle me-2"></i>
+                        Код отправлен на <span id="sent-email"></span>                    </div>
+                    <div class="mb-3">
+                        <label for="code" class="form-label">Код подтверждения</label>
+                        <input type="text" class="form-control text-center" id="code" 
+                               maxlength="6" required placeholder="000000" style="font-size: 1.5rem; letter-spacing: 0.5rem;">
+                        <div class="form-text">
+                            Введите 6-значный код из email
+                        </div>
+                        <div id="demo-code" class="alert alert-warning mt-2" style="display: none;">
+                            <small>Demo код: <strong id="demo-code-value"></strong></small>
+                        </div>
+                    </div>
+                    <button onclick="verifyCode()" class="btn btn-success w-100">
+                        <i class="fas fa-sign-in-alt me-2"></i>Войти
+                    </button>
+                    <hr>
+                    <button onclick="showLoginForm()" class="btn btn-outline-secondary w-100">
+                        <i class="fas fa-arrow-left me-2"></i>Запросить новый код
+                    </button>
+                </div>
+            </div>
+            <div class="card-footer text-center text-muted">
+                <small>
+                    <i class="fas fa-shield-alt me-1"></i>
+                    Защищено двухфакторной аутентификацией
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentEmail = '';
+
+function sendCode() {
+    const email = document.getElementById('email').value;
+    if (!email) {
+        alert('Введите email адрес');
+        return;
+    }
+    
+    fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email: email })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+        } else {
+            currentEmail = email;
+            document.getElementById('sent-email').textContent = email;
+            document.getElementById('login-form').style.display = 'none';
+            document.getElementById('code-form').style.display = 'block';
+            
+            // Show demo code for development
+            if (data.demo_code) {
+                document.getElementById('demo-code-value').textContent = data.demo_code;
+                document.getElementById('demo-code').style.display = 'block';
+            }
+            
+            document.getElementById('code').focus();
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Ошибка отправки кода');
+    });
+}
+
+function verifyCode() {
+    const code = document.getElementById('code').value;
+    if (!code) {
+        alert('Введите код подтверждения');
+        return;
+    }
+    
+    fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            email: currentEmail, 
+            code: code 
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+        } else {
+            // Store token in localStorage
+            localStorage.setItem('auth_token', data.token);
+            // Redirect to dashboard
+            window.location.href = '/';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Ошибка верификации кода');
+    });
+}
+
+function showLoginForm() {
+    document.getElementById('code-form').style.display = 'none';
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('email').value = '';
+    document.getElementById('code').value = '';
+    currentEmail = '';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const codeInput = document.getElementById('code');
+    if (codeInput) {
+        codeInput.addEventListener('input', function(e) {
+            // Автоматически делать uppercase и ограничивать только цифрами
+            this.value = this.value.replace(/[^0-9]/g, '');
+        });
+    }
+});
+</script>
+{% endblock %}
