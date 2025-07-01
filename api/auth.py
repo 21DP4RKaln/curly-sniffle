@@ -8,8 +8,6 @@ from email.mime.multipart import MIMEMultipart
 from functools import wraps
 from flask import Flask, request, jsonify, render_template_string
 
-app = Flask(__name__)
-
 # Configuration
 SECRET_KEY = os.environ.get('SECRET_KEY', 'development-secret-key-please-change-in-production')
 ADMIN_EMAIL = os.environ.get('ALLOWED_EMAILS', 'sitvain12@gmail.com').lower()
@@ -104,72 +102,3 @@ def require_auth(f):
                 return f(*args, **kwargs)
         return jsonify({'error': 'Nav autorizācijas'}), 401
     return decorated_function
-
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    email = data.get('email')
-    code = data.get('code')
-    
-    if email and not code:
-        # Check if email is authorized
-        if email.strip().lower() != ADMIN_EMAIL.lower():
-            return jsonify({'error': 'E-pasts nav autorizēts'}), 403
-        
-        # Generate and send code
-        auth_code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
-        auth_codes[email] = {
-            'code': auth_code,
-            'timestamp': datetime.now(),
-            'attempts': 0
-        }
-        
-        # Send email code
-        email_sent = send_email_code(email, auth_code)
-        
-        # Return response
-        response = {
-            'message': 'Kods nosūtīts uz e-pastu'
-        }
-        
-        # For development, include code if email sending failed
-        if not email_sent:
-            response['demo_code'] = auth_code
-            
-        return jsonify(response)
-    
-    elif email and code:
-        # Verify code
-        if email not in auth_codes:
-            return jsonify({'error': 'Kods nav atrasts'}), 400
-        
-        stored_data = auth_codes[email]
-        
-        # Check if code expired
-        if datetime.now() - stored_data['timestamp'] > timedelta(minutes=10):
-            del auth_codes[email]
-            return jsonify({'error': 'Kods ir beidzies'}), 400
-        
-        # Check attempts limit
-        if stored_data['attempts'] >= 3:
-            del auth_codes[email]
-            return jsonify({'error': 'Pārāk daudz mēģinājumu'}), 400
-        
-        # Verify code
-        if code == stored_data['code']:
-            del auth_codes[email]
-            token = generate_token(email)
-            return jsonify({
-                'token': token,
-                'message': 'Pieteikšanās veiksmīga'
-            })
-        else:
-            auth_codes[email]['attempts'] += 1
-            return jsonify({'error': 'Nepareizs kods'}), 400
-    
-    return jsonify({'error': 'Nepieciešams e-pasts un kods'}), 400
-
-# Serverless function handler
-def handler(request):
-    with app.app_context():
-        return app(request.environ, lambda *args: None)

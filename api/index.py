@@ -2,13 +2,181 @@ import os
 import sqlite3
 import secrets
 import json
+import jwt
+import smtplib
 from datetime import datetime, timedelta
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from functools import wraps
 from flask import Flask, request, jsonify, render_template_string, redirect
-from auth import require_auth, auth_codes, send_email_code, generate_token, verify_token
-from dashboard import init_database
-from predict import ai_predictor
 
 app = Flask(__name__)
+
+# Configuration
+SECRET_KEY = os.environ.get('SECRET_KEY', 'development-secret-key-please-change-in-production')
+ADMIN_EMAIL = os.environ.get('ALLOWED_EMAILS', 'sitvain12@gmail.com').lower()
+
+# Email configuration
+SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+
+# Simple in-memory auth codes for demo (in production use Redis/database)
+auth_codes = {}
+
+# AI Predictor class (simplified)
+class SimpleAIPredictor:
+    def __init__(self):
+        self.training_data = []
+    
+    def predict(self, features):
+        # Simple prediction logic
+        import random
+        prediction = random.choice([-1, 0, 1])
+        confidence = round(random.uniform(0.6, 0.95), 2)
+        return {
+            'prediction': prediction,
+            'confidence': confidence,
+            'probabilities': [0.2, 0.3, 0.5]
+        }
+    
+    def train(self, features, signal, result):
+        self.training_data.append({
+            'features': features,
+            'signal': signal,
+            'result': result
+        })
+        return True
+
+ai_predictor = SimpleAIPredictor()
+
+def send_email_code(email, code):
+    """Send authentication code via email"""
+    try:
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_USER if SMTP_USER else 'noreply@svnbot.com'
+        msg['To'] = email
+        msg['Subject'] = "SVN Trading Bot - Kods autentifikācijai"
+        
+        # Email body in Latvian
+        body = f"""
+Sveiki!
+
+Jūsu autentifikācijas kods SVN Trading Bot sistēmai:
+
+{code}
+
+Šis kods derīgs 10 minūtes.
+
+Ja jūs nepieprasījāt šo kodu, ignorējiet šo e-pastu.
+
+Ar cieņu,
+SVN Trading Bot komanda
+        """
+        
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Send email
+        if SMTP_USER and SMTP_PASSWORD:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+            server.quit()
+            return True
+        else:
+            print(f"Demo mode: Would send code {code} to {email}")
+            return False
+            
+    except Exception as e:
+        print(f"Email send error: {e}")
+        return False
+
+def get_db_connection():
+    """Get database connection"""
+    conn = sqlite3.connect('svnbot.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def generate_token(email):
+    """Generate JWT token"""
+    payload = {
+        'email': email,
+        'exp': datetime.utcnow() + timedelta(hours=24)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm='HS256')
+
+def verify_token(token):
+    """Verify JWT token"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        return payload['email']
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+def require_auth(f):
+    """Auth decorator"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if token:
+            token = token.replace('Bearer ', '')
+            email = verify_token(token)
+            if email:
+                return f(*args, **kwargs)
+        return jsonify({'error': 'Nav autorizācijas'}), 401
+    return decorated_function
+
+def init_database():
+    """Initialize database with required tables"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Create users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            registration_date TEXT,
+            last_activity TEXT,
+            total_trades INTEGER DEFAULT 0,
+            profit REAL DEFAULT 0.0
+        )
+    ''')
+    
+    # Create trades table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            user_id TEXT,
+            symbol TEXT,
+            signal TEXT,
+            profit REAL,
+            confidence REAL DEFAULT 0.0,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # Create market_data table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS market_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            user_id TEXT,
+            symbol TEXT,
+            features TEXT,
+            signal INTEGER,
+            confidence REAL DEFAULT 0.0,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
 
 # Initialize database
 init_database()
@@ -949,10 +1117,6 @@ def health_check():
         'timestamp': datetime.now().isoformat()
     })
 
-# Serverless handler
-def handler(request):
-    with app.app_context():
-        return app(request.environ, lambda *args: None)
-
+# For local development
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

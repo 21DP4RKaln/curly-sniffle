@@ -1,32 +1,5 @@
 {
-  "functions": {
-    "api/**/*.py": {
-      "runtime": "@vercel/python"
-    }
-  },
   "rewrites": [
-    { "source": "/api/auth/login", "destination": "/api/auth" },
-    { "source": "/api/dashboard", "destination": "/api/dashboard" },
-    { "source": "/api/users/(.*)", "destination": "/api/users" },
-    { "source": "/api/users", "destination": "/api/users" },
-    { "source": "/api/status", "destination": "/api/predict" },
-    { "source": "/api/predict", "destination": "/api/predict" },
-    { "source": "/api/data", "destination": "/api/dashboard" },
-    { "source": "/api/feedback", "destination": "/api/dashboard" },
-    { "source": "/api/test", "destination": "/api/index" },
-    { "source": "/health", "destination": "/api/index" },
-    { "source": "/login", "destination": "/api/index" },
-    { "source": "/dashboard", "destination": "/api/index" },
-    { "source": "/", "destination": "/api/index" }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
-      ]
-    }
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
