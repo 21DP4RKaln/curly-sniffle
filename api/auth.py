@@ -6,6 +6,9 @@ import logging
 from datetime import datetime, timedelta
 import secrets
 import jwt
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -22,13 +25,62 @@ CORS(app)
 app.secret_key = os.environ.get('SECRET_KEY', 'temp-key-for-development')
 DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///svnbot.db')
 
-# Allowed emails
-ALLOWED_EMAILS = os.environ.get('ALLOWED_EMAILS', '').split(',')
-if not ALLOWED_EMAILS[0]:
-    ALLOWED_EMAILS = ['sitvain12@gmail.com', 'sitvain89@gmail.com']
+# Allowed emails - only one email from environment
+ADMIN_EMAIL = os.environ.get('ALLOWED_EMAILS', 'sitvain12@gmail.com').split(',')[0].strip()
+
+# Email configuration
+SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 
 # Simple in-memory auth codes for demo (in production use Redis/database)
 auth_codes = {}
+
+def send_email_code(email, code):
+    """Send authentication code via email"""
+    try:
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_USER if SMTP_USER else 'noreply@svnbot.com'
+        msg['To'] = email
+        msg['Subject'] = "SVN Trading Bot - Kods autentifikācijai"
+        
+        # Email body in Latvian
+        body = f"""
+Sveiki!
+
+Jūsu autentifikācijas kods SVN Trading Bot sistēmai:
+
+{code}
+
+Šis kods derīgs 10 minūtes.
+
+Ja jūs nepieprasījāt šo kodu, ignorējiet šo e-pastu.
+
+Ar cieņu,
+SVN Trading Bot komanda
+        """
+        
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Send email
+        if SMTP_USER and SMTP_PASSWORD:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            text = msg.as_string()
+            server.sendmail(SMTP_USER, email, text)
+            server.quit()
+            return True
+        else:
+            # For development - log the code
+            print(f"Development mode - Auth code for {email}: {code}")
+            return False
+            
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
 
 # Database helper
 def get_db_connection():
@@ -84,10 +136,11 @@ def login():
     code = data.get('code')
     
     if email and not code:
-        # Generate and send code
-        if email not in ALLOWED_EMAILS:
-            return jsonify({'error': 'Email not authorized'}), 403
+        # Check if email is authorized
+        if email.strip().lower() != ADMIN_EMAIL.lower():
+            return jsonify({'error': 'E-pasts nav autorizēts'}), 403
         
+        # Generate and send code
         auth_code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
         auth_codes[email] = {
             'code': auth_code,
@@ -95,40 +148,50 @@ def login():
             'attempts': 0
         }
         
-        # In production, send email here
-        # For demo, return code (REMOVE IN PRODUCTION!)
-        return jsonify({
-            'message': 'Code sent to email',
-            'demo_code': auth_code  # REMOVE IN PRODUCTION!
-        })
+        # Send email code
+        email_sent = send_email_code(email, auth_code)
+        
+        # Return response
+        response = {
+            'message': 'Kods nosūtīts uz e-pastu'
+        }
+        
+        # For development, include code if email sending failed
+        if not email_sent:
+            response['demo_code'] = auth_code
+            
+        return jsonify(response)
     
     elif email and code:
         # Verify code
         if email not in auth_codes:
-            return jsonify({'error': 'No code found'}), 400
+            return jsonify({'error': 'Kods nav atrasts'}), 400
         
         stored_data = auth_codes[email]
         
+        # Check if code expired
         if datetime.now() - stored_data['timestamp'] > timedelta(minutes=10):
             del auth_codes[email]
-            return jsonify({'error': 'Code expired'}), 400
+            return jsonify({'error': 'Kods ir beidzies'}), 400
         
+        # Check attempts limit
         if stored_data['attempts'] >= 3:
             del auth_codes[email]
-            return jsonify({'error': 'Too many attempts'}), 400
+            return jsonify({'error': 'Pārāk daudz mēģinājumu'}), 400
         
+        # Verify code
         if code == stored_data['code']:
             del auth_codes[email]
             token = generate_token(email)
             return jsonify({
                 'token': token,
-                'message': 'Login successful'
+                'message': 'Pieteikšanās veiksmīga'
             })
         else:
             auth_codes[email]['attempts'] += 1
-            return jsonify({'error': 'Invalid code'}), 400
+            return jsonify({'error': 'Nepareizs kods'}), 400
     
-    return jsonify({'error': 'Email and code required'}), 400
+    return jsonify({'error': 'Nepieciešams e-pasts un kods'}), 400
 
 # Serverless function handler
 def handler(request):

@@ -1,58 +1,59 @@
 {% extends "base.html" %}
 
-{% block title %}Вход - SVN bot{% endblock %}
+{% block title %}Pieteikšanās - SVN Bot{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center mt-5">
     <div class="col-md-6">
         <div class="card shadow">
             <div class="card-header bg-primary text-white text-center">
-                <h4><i class="fas fa-lock me-2"></i>Безопасный вход</h4>
-                <p class="mb-0">Доступ только для авторизованных пользователей</p>
+                <h4><i class="fas fa-lock me-2"></i>Drošā pieteikšanās</h4>
+                <p class="mb-0">Piekļuve tikai autorizētiem lietotājiem</p>
             </div>
             <div class="card-body">
                 <div id="login-form">
                     <div class="mb-3">
-                        <label for="email" class="form-label">Email адрес</label>
+                        <label for="email" class="form-label">E-pasta adrese</label>
                         <input type="email" class="form-control" id="email" required 
-                               placeholder="Введите ваш email">
+                               placeholder="Ievadiet savu e-pastu">
                         <div class="form-text">
-                            Код доступа будет отправлен на указанный email
+                            Kods tiks nosūtīts uz norādīto e-pastu
                         </div>
                     </div>
                     <button onclick="sendCode()" class="btn btn-primary w-100">
-                        <i class="fas fa-envelope me-2"></i>Отправить код
+                        <i class="fas fa-envelope me-2"></i>Nosūtīt kodu
                     </button>
                 </div>
                 
                 <div id="code-form" style="display: none;">
                     <div class="alert alert-success">
                         <i class="fas fa-check-circle me-2"></i>
-                        Код отправлен на <span id="sent-email"></span>                    </div>
+                        Kods nosūtīts uz <span id="sent-email"></span>
+                    </div>
                     <div class="mb-3">
-                        <label for="code" class="form-label">Код подтверждения</label>
+                        <label for="code" class="form-label">Apstiprinājuma kods</label>
                         <input type="text" class="form-control text-center" id="code" 
                                maxlength="6" required placeholder="000000" style="font-size: 1.5rem; letter-spacing: 0.5rem;">
                         <div class="form-text">
-                            Введите 6-значный код из email
+                            Ievadiet 6-ciparu kodu no e-pasta
                         </div>
                         <div id="demo-code" class="alert alert-warning mt-2" style="display: none;">
-                            <small>Demo код: <strong id="demo-code-value"></strong></small>
+                            <small>Demo kods: <strong id="demo-code-value"></strong></small>
                         </div>
                     </div>
                     <button onclick="verifyCode()" class="btn btn-success w-100">
-                        <i class="fas fa-sign-in-alt me-2"></i>Войти
+                        <i class="fas fa-sign-in-alt me-2"></i>Pieteikties
                     </button>
                     <hr>
                     <button onclick="showLoginForm()" class="btn btn-outline-secondary w-100">
-                        <i class="fas fa-arrow-left me-2"></i>Запросить новый код
+                        <i class="fas fa-arrow-left me-2"></i>Pieprasīt jaunu kodu
                     </button>
                 </div>
             </div>
             <div class="card-footer text-center text-muted">
                 <small>
                     <i class="fas fa-shield-alt me-1"></i>
-                    Защищено двухфакторной аутентификацией
+                    Aizsargāts ar divfaktoru autentifikāciju
                 </small>
             </div>
         </div>
@@ -65,7 +66,7 @@ let currentEmail = '';
 function sendCode() {
     const email = document.getElementById('email').value;
     if (!email) {
-        alert('Введите email адрес');
+        alert('Ievadiet e-pasta adresi');
         return;
     }
     
@@ -97,14 +98,14 @@ function sendCode() {
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Ошибка отправки кода');
+        alert('Kļūda nosūtot kodu');
     });
 }
 
 function verifyCode() {
     const code = document.getElementById('code').value;
     if (!code) {
-        alert('Введите код подтверждения');
+        alert('Ievadiet apstiprinājuma kodu');
         return;
     }
     
@@ -131,7 +132,7 @@ function verifyCode() {
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Ошибка верификации кода');
+        alert('Kļūda verificējot kodu');
     });
 }
 

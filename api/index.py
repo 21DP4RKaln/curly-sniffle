@@ -1,46 +1,33 @@
-from flask import Flask
-from flask_cors import CORS
+import os
+import sys
+from flask import Flask, render_template, request, jsonify
 
-app = Flask(__name__)
-CORS(app)
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+app = Flask(__name__, 
+           template_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates'),
+           static_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'))
 
 @app.route('/', methods=['GET'])
 def index():
-    """Main dashboard page"""
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>SVN Trading Bot Dashboard</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-            .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            h1 { color: #333; text-align: center; }
-            .status { padding: 15px; margin: 20px 0; border-radius: 5px; }
-            .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-            .nav { text-align: center; margin: 20px 0; }
-            .nav a { margin: 0 10px; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; }
-            .nav a:hover { background: #0056b3; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🤖 SVN Trading Bot Dashboard</h1>
-            <div class="status success">
-                ✅ Application successfully deployed on Vercel!
-            </div>
-            <div class="nav">
-                <a href="/users">Users</a>
-                <a href="/login">Login</a>
-                <a href="/ai-analytics">AI Analytics</a>
-            </div>
-            <p><strong>Status:</strong> Bot is ready for configuration</p>
-            <p><strong>Environment:</strong> Vercel Serverless</p>
-            <p><strong>Version:</strong> 2.0.0</p>
-        </div>
-    </body>
-    </html>
-    '''
+    """Handle all page routing based on query parameter"""
+    page = request.args.get('page', 'dashboard')
+    
+    if page == 'login':
+        return render_template('login.html')
+    elif page == 'users':
+        return render_template('users.html')
+    elif page == 'dashboard':
+        return render_template('dashboard.html')
+    else:
+        # Default to dashboard for unknown pages
+        return render_template('dashboard.html')
+
+# Serverless function handler for Vercel
+def handler(request, context):
+    with app.request_context(request.environ):
+        return app.full_dispatch_request()
 
 @app.route('/users', methods=['GET'])
 def users():

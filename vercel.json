@@ -1,8 +1,20 @@
 {
-  "outputDirectory": "static",
+  "functions": {
+    "api/*.py": {
+      "runtime": "python3.9"
+    }
+  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/api/auth/login", "destination": "/api/auth" },
+    { "source": "/api/dashboard", "destination": "/api/dashboard" },
+    { "source": "/api/users", "destination": "/api/users" },
+    { "source": "/api/status", "destination": "/api/status" },
+    { "source": "/api/predict", "destination": "/api/predict" },
+    { "source": "/api/test", "destination": "/api/test" },
     { "source": "/static/(.*)", "destination": "/static/$1" },
-    { "source": "/(.*)", "destination": "/api/index" }
+    { "source": "/login", "destination": "/api/index?page=login" },
+    { "source": "/users", "destination": "/api/index?page=users" },
+    { "source": "/", "destination": "/api/index?page=dashboard" },
+    { "source": "/(.*)", "destination": "/api/index?page=$1" }
   ]
 }
