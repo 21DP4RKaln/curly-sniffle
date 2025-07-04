@@ -15,7 +15,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # Configuration
-SECRET_KEY = os.environ.get('SECRET_KEY', 'development-secret-key-please-change-in-production')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'k9mX#vR2$pL8qN4wE6tY1uI3oP5aS7dF9gH0jK2lZ4xC6vB8nM1qW3eR5tY7uI9oP')
 API_KEY = os.environ.get('MT5_API_KEY', '61c2f3467e03e633d25a9bbc3caf05ed990aa6eaa59d2435601309148e48892f')
 
 # Simple in-memory storage for demo (in production use proper database)

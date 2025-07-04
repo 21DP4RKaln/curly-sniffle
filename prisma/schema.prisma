@@ -1,0 +1,169 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ma/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-py"
+  interface       = "asyncio"
+  recursive_type_depth = 5
+}
+
+// Prisma Cloud configuration
+datasource db {
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+  directUrl    = env("DIRECT_URL")
+  relationMode = "prisma"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  apiKey    String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  accounts  Account[]
+  trades    Trade[]
+  
+  @@map("users")
+}
+
+model Account {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  accountId     String   @unique
+  balance       Float
+  equity        Float
+  leverage      Int
+  currency      String   @default("USD")
+  brokerName    String?
+  serverName    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  marketData    MarketData[]
+  trades        Trade[]
+  performance   Performance[]
+  
+  @@index([userId])
+  @@map("accounts")
+}
+
+model MarketData {
+  id          Int      @id @default(autoincrement())
+  accountId   Int
+  symbol      String
+  timeframe   String
+  timestamp   DateTime
+  open        Float
+  high        Float
+  low         Float
+  close       Float
+  volume      BigInt
+  spread      Float?
+  indicators  Json    
+  createdAt   DateTime @default(now())
+  
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  @@index([accountId])
+  @@index([symbol, timestamp])
+  @@index([accountId, timestamp])
+  @@map("market_data")
+}
+
+model Trade {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  accountId    Int
+  tradeId      String   @unique
+  symbol       String
+  type         String   
+  lotSize      Float
+  openPrice    Float
+  closePrice   Float?
+  stopLoss     Float?
+  takeProfit   Float?
+  openTime     DateTime
+  closeTime    DateTime?
+  profit       Float?
+  commission   Float?
+  swap         Float?
+  signal       Int      
+  confidence   Float?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([accountId])
+  @@index([accountId, openTime])
+  @@index([symbol, openTime])
+  @@map("trades")
+}
+
+model Prediction {
+  id          Int      @id @default(autoincrement())
+  symbol      String
+  timeframe   String
+  features    Json     
+  prediction  Int      
+  confidence  Float
+  timestamp   DateTime
+  actualResult Int?    
+  createdAt   DateTime @default(now())
+  
+  @@index([symbol, timestamp])
+  @@map("predictions")
+}
+
+model Performance {
+  id            Int      @id @default(autoincrement())
+  accountId     Int
+  date          DateTime @db.Date
+  dailyProfit   Float
+  totalTrades   Int
+  winningTrades Int
+  losingTrades  Int
+  maxDrawdown   Float
+  sharpeRatio   Float?
+  profitFactor  Float?
+  createdAt     DateTime @default(now())
+  
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  @@index([accountId])
+  @@unique([accountId, date])
+  @@map("performance")
+}
+
+model AIModel {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  version     String
+  weights     Json     
+  parameters  Json     
+  accuracy    Float?
+  lastTrained DateTime?
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("ai_models")
+}
+
+model SystemLog {
+  id        Int      @id @default(autoincrement())
+  level     String   
+  message   String
+  details   Json?
+  timestamp DateTime @default(now())
+  
+  @@index([level, timestamp])
+  @@map("system_logs")
+}
