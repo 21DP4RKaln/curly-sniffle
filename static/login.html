@@ -260,11 +260,7 @@
                 
                 const data = await response.json();                if (response.ok) {
                     userEmail = email;
-                    if (data.debug_code) {
-                        showSuccess('PIEEJAS KODS: ' + data.debug_code + ' (Derīgs 5 minūtes)');
-                    } else {
-                        showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
-                    }
+                    showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
                     step1.classList.add('hidden');
                     step2.classList.remove('hidden');
                     document.getElementById('access_code').focus();

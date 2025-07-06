@@ -52,8 +52,9 @@ if not ACCESS_CODE:
     import sys
     sys.exit(1)
 if not SMTP_EMAIL or not SMTP_PASSWORD:
-    print("WARNING: SMTP_EMAIL and SMTP_PASSWORD not set. Email notifications will not work.")
-    # Don't exit, allow system to run without email
+    print("ERROR: SMTP_EMAIL and SMTP_PASSWORD environment variables are required for email functionality!")
+    import sys
+    sys.exit(1)
 
 # Authorized users and IPs from environment variables
 AUTHORIZED_EMAILS_ENV = os.environ.get('ALLOWED_EMAILS', '')
@@ -136,11 +137,6 @@ def generate_access_code(email):
 
 def send_access_code_email(email, code):
     """Send access code via email"""
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        print(f"=== ACCESS CODE FOR {email}: {code} ===")
-        print(f"=== This code expires in 5 minutes ===")
-        return False
-    
     try:
         msg = MIMEMultipart()
         msg['From'] = SMTP_EMAIL
@@ -171,7 +167,6 @@ SVN Trading Bot komanda
         return True
     except Exception as e:
         print(f"Failed to send email to {email}: {e}")
-        print(f"=== ACCESS CODE FOR {email}: {code} ===")
         return False
 
 def verify_access_code(email, code):
@@ -553,14 +548,9 @@ def login():
                             body: JSON.stringify({ email: email })
                         });
                         
-                        const data = await response.json();
-                          if (response.ok) {
+                        const data = await response.json();                        if (response.ok) {
                             userEmail = email;
-                            if (data.debug_code) {
-                                showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu. Testa kods: ' + data.debug_code);
-                            } else {
-                                showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
-                            }
+                            showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
                             step1.classList.add('hidden');
                             step2.classList.remove('hidden');
                             document.getElementById('access_code').focus();
@@ -651,23 +641,14 @@ def send_code():
     # Check if email is authorized
     if not is_email_authorized(email):
         record_failed_attempt(client_ip)
-        return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403
-      # Generate and send access code
+        return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403    # Generate and send access code
     code = generate_access_code(email)
     
     # Try to send email
     if send_access_code_email(email, code):
         return jsonify({'message': 'Pieejas kods nosūtīts uz jūsu e-pastu'})
     else:
-        # For development, show the code in the response if SMTP is not configured
-        if not SMTP_EMAIL or not SMTP_PASSWORD:
-            return jsonify({
-                'message': 'E-pasta sūtīšana nav konfigurēta',
-                'debug_code': code,
-                'debug_message': f'Jūsu pieejas kods ir: {code}'
-            })
-        else:
-            return jsonify({'message': 'Pieejas kods nosūtīts uz jūsu e-pastu'})
+        return jsonify({'error': 'Neizdevās nosūtīt pieejas kodu. Lūdzu, mēģiniet vēlāk.'}), 500
 
 @app.route('/api/verify-code', methods=['POST'])
 def verify_code():
