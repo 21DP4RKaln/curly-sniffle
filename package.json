@@ -1,7 +1,7 @@
 {
   "name": "svn-trading-bot",
-  "version": "2.0.0",
-  "description": "AI-powered trading bot dashboard optimized for Vercel",
+  "version": "1.0.0",
+  "description": "SVN Smart Money Trading Bot with AI - MT5 Integration",
   "main": "api/index.py",
   "scripts": {
     "dev": "vercel dev",
