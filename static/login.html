@@ -10,25 +10,25 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
-        body {
+          body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f4c3a 0%, #1a7f64 30%, #2d8f74 70%, #0f4c3a 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            color: #e2e8f0;
         }
-        
-        .login-container {
-            background: rgba(255, 255, 255, 0.15);
+          .login-container {
+            background: rgba(26, 127, 100, 0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(34, 197, 94, 0.2);
             padding: 40px;
             border-radius: 20px;
-            backdrop-filter: blur(10px);
             max-width: 400px;
             width: 100%;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
         }
         
         .login-header {
@@ -55,33 +55,32 @@
             font-weight: 500;
             color: rgba(255, 255, 255, 0.9);
         }
-        
-        input {
+          input {
             width: 100%;
             padding: 15px;
             border: none;
             border-radius: 10px;
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
+            background: rgba(15, 76, 58, 0.3);
+            color: #e2e8f0;
             font-size: 16px;
             box-sizing: border-box;
             transition: all 0.3s ease;
+            border: 1px solid rgba(34, 197, 94, 0.2);
         }
-        
-        input:focus {
+          input:focus {
             outline: none;
-            background: rgba(255, 255, 255, 0.3);
+            background: rgba(15, 76, 58, 0.5);
             transform: scale(1.02);
+            border: 1px solid rgba(34, 197, 94, 0.5);
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
         }
-        
-        input::placeholder {
-            color: rgba(255, 255, 255, 0.6);
+          input::placeholder {
+            color: rgba(226, 232, 240, 0.6);
         }
-        
-        .login-btn {
+          .login-btn {
             width: 100%;
             padding: 15px;
-            background: #4CAF50;
+            background: linear-gradient(45deg, #22c55e, #16a34a);
             color: white;
             border: none;
             border-radius: 10px;
@@ -93,12 +92,12 @@
         }
         
         .login-btn:hover {
-            background: #45a049;
+            background: linear-gradient(45deg, #16a34a, #15803d);
             transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
         }
-        
-        .login-btn:disabled {
-            background: #666;
+          .login-btn:disabled {
+            background: #4a5568;
             cursor: not-allowed;
             transform: none;
         }
@@ -110,23 +109,23 @@
             font-size: 14px;
             line-height: 1.4;
         }
-        
-        .error {
-            color: #ff6b6b;
+          .error {
+            color: #ef4444;
             text-align: center;
             margin-bottom: 20px;
             padding: 10px;
             border-radius: 5px;
-            background: rgba(255, 107, 107, 0.1);
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
         }
-        
-        .success {
-            color: #4CAF50;
+          .success {
+            color: #22c55e;
             text-align: center;
             margin-bottom: 20px;
             padding: 10px;
             border-radius: 5px;
-            background: rgba(76, 175, 80, 0.1);
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.2);
         }
         
         .step-indicator {
@@ -139,13 +138,12 @@
         .hidden {
             display: none;
         }
-        
-        .loading {
+          .loading {
             display: inline-block;
             width: 20px;
             height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #4CAF50;
+            border: 3px solid rgba(226, 232, 240, 0.3);
+            border-top: 3px solid #22c55e;
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin-right: 10px;
@@ -192,9 +190,8 @@
                 </div>
                 <button type="submit" class="login-btn" id="code-btn">
                     Pieslēgties
-                </button>
-                <button type="button" class="login-btn" id="back-btn" 
-                        style="background: #666; margin-top: 10px;">
+                </button>                <button type="button" class="login-btn" id="back-btn" 
+                        style="background: linear-gradient(45deg, #4a5568, #374151); margin-top: 10px;">
                     Atgriezties
                 </button>
             </form>
