@@ -137,24 +137,25 @@ def generate_access_code(email):
 def send_access_code_email(email, code):
     """Send access code via email"""
     if not SMTP_EMAIL or not SMTP_PASSWORD:
-        print(f"Email not configured. Access code for {email}: {code}")
+        print(f"=== ACCESS CODE FOR {email}: {code} ===")
+        print(f"=== This code expires in 5 minutes ===")
         return False
     
     try:
         msg = MIMEMultipart()
         msg['From'] = SMTP_EMAIL
         msg['To'] = email
-        msg['Subject'] = "SVN Trading Bot - Access Code"
+        msg['Subject'] = "SVN Trading Bot - Pieejas kods"
         
         body = f"""
-        Your access code for SVN Trading Bot is: {code}
-        
-        This code will expire in 5 minutes.
-        
-        If you did not request this code, please ignore this email.
-        
-        Best regards,
-        SVN Trading Bot Team
+Jūsu pieejas kods SVN Trading Bot sistēmai ir: {code}
+
+Šis kods derīgs 5 minūtes.
+
+Ja neesat pieprasījis šo kodu, lūdzu, ignorējiet šo e-pastu.
+
+Ar cieņu,
+SVN Trading Bot komanda
         """
         
         msg.attach(MIMEText(body, 'plain'))
@@ -170,6 +171,7 @@ def send_access_code_email(email, code):
         return True
     except Exception as e:
         print(f"Failed to send email to {email}: {e}")
+        print(f"=== ACCESS CODE FOR {email}: {code} ===")
         return False
 
 def verify_access_code(email, code):
@@ -650,23 +652,19 @@ def send_code():
     if not is_email_authorized(email):
         record_failed_attempt(client_ip)
         return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403
-    
-    # Generate and send access code
+      # Generate and send access code
     code = generate_access_code(email)
-      # Try to send email
+    
+    # Try to send email
     if send_access_code_email(email, code):
         return jsonify({'message': 'Pieejas kods nosūtīts uz jūsu e-pastu'})
     else:
-        # If email fails, still show success for security (don't reveal if email exists)
-        # But log the code for development
-        print(f"DEBUG: Access code for {email}: {code}")
-        
         # For development, show the code in the response if SMTP is not configured
         if not SMTP_EMAIL or not SMTP_PASSWORD:
             return jsonify({
-                'message': 'Pieejas kods nosūtīts uz jūsu e-pastu',
+                'message': 'E-pasta sūtīšana nav konfigurēta',
                 'debug_code': code,
-                'debug_message': 'E-pasta sūtīšana nav konfigurēta. Izmantojiet šo kodu testēšanai.'
+                'debug_message': f'Jūsu pieejas kods ir: {code}'
             })
         else:
             return jsonify({'message': 'Pieejas kods nosūtīts uz jūsu e-pastu'})

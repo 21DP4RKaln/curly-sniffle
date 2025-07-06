@@ -258,11 +258,10 @@
                     body: JSON.stringify({ email: email })
                 });
                 
-                const data = await response.json();
-                  if (response.ok) {
+                const data = await response.json();                if (response.ok) {
                     userEmail = email;
                     if (data.debug_code) {
-                        showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu. Testa kods: ' + data.debug_code);
+                        showSuccess('PIEEJAS KODS: ' + data.debug_code + ' (Derīgs 5 minūtes)');
                     } else {
                         showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
                     }
