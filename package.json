@@ -4,10 +4,14 @@
   "description": "SVN Smart Money Trading Bot with AI - MT5 Integration",
   "main": "api/index.py",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "python -m api.index",
+    "start": "python -m api.index",
     "build": "echo 'No build step required for Python serverless functions'",
     "deploy": "vercel --prod",
-    "migrate": "python migrate_db.py"
+    "deploy:dev": "vercel dev",
+    "setup": "deploy.bat",
+    "migrate": "python -c 'from api.database import init_db; init_db()'",
+    "clean": "rmdir /s /q __pycache__ 2>nul || echo 'Cache cleaned'"
   },
   "repository": {
     "type": "git",

@@ -6,7 +6,7 @@
       "use": "@vercel/python"
     },
     {
-      "src": "static/**",
+      "src": "static/**/*",
       "use": "@vercel/static"
     }
   ],
@@ -42,10 +42,5 @@
   ],
   "env": {
     "FLASK_ENV": "production"
-  },
-  "functions": {
-    "api/index.py": {
-      "maxDuration": 30
-    }
   }
 }

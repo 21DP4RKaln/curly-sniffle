@@ -16,17 +16,58 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  apiKey    String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  email       String   @unique
+  nickname    String?
+  role        UserRole @default(REG_USER)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastLogin   DateTime?
+  loginCount  Int      @default(0)
   
-  accounts  Account[]
-  trades    Trade[]
+  // Auth codes for email-based login
+  authCodes   AuthCode[]
+  apiKeys     ApiKey[]
+  accounts    Account[]
+  trades      Trade[]
   
   @@map("users")
+}
+
+model AuthCode {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  code      String
+  isUsed    Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([code])
+  @@map("auth_codes")
+}
+
+model ApiKey {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  key       String   @unique
+  name      String?
+  isActive  Boolean  @default(true)
+  lastUsed  DateTime?
+  createdAt DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@map("api_keys")
+}
+
+enum UserRole {
+  REG_USER
+  LID_USER
 }
 
 model Account {

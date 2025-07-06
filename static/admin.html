@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVN Trading Bot - Admin Panel</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f4c3a 0%, #1a7f64 30%, #2d8f74 70%, #0f4c3a 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: rgba(26, 127, 100, 0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            color: #22c55e;
+            font-size: 2em;
+        }
+        
+        .btn {
+            background: linear-gradient(45deg, #22c55e, #16a34a);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn:hover {
+            background: linear-gradient(45deg, #16a34a, #15803d);
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: #22c55e;
+            border: 2px solid #22c55e;
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(34, 197, 94, 0.1);
+        }
+        
+        .users-table {
+            background: rgba(26, 127, 100, 0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+        
+        .users-table h2 {
+            color: #22c55e;
+            margin-bottom: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(34, 197, 94, 0.2);
+        }
+        
+        th {
+            background: rgba(34, 197, 94, 0.1);
+            color: #22c55e;
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background: rgba(34, 197, 94, 0.05);
+        }
+        
+        .role-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+        
+        .role-reg {
+            background: rgba(59, 130, 246, 0.2);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+        
+        .role-lid {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+        
+        .status-active {
+            color: #22c55e;
+        }
+        
+        .status-inactive {
+            color: #ef4444;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #22c55e;
+        }
+        
+        .error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .success {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #86efac;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .role-select {
+            background: rgba(15, 76, 58, 0.3);
+            color: #e2e8f0;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 0.9em;
+        }
+        
+        .role-select:focus {
+            outline: none;
+            border-color: #22c55e;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 0.8em;
+        }
+        
+        .btn-update {
+            background: linear-gradient(45deg, #3b82f6, #2563eb);
+        }
+        
+        .btn-update:hover {
+            background: linear-gradient(45deg, #2563eb, #1d4ed8);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛠️ Admin Panel</h1>
+            <div>
+                <a href="/static/dashboard.html" class="btn btn-secondary">Dashboard</a>
+                <button class="btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+        
+        <div id="messageDiv"></div>
+        
+        <div class="users-table">
+            <h2>👥 User Management</h2>
+            <button class="btn" onclick="refreshUsers()">🔄 Refresh Users</button>
+            
+            <div id="loadingDiv" class="loading">
+                Loading users...
+            </div>
+            
+            <table id="usersTable" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Email</th>
+                        <th>Nickname</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Last Login</th>
+                        <th>Login Count</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        // API Configuration
+        const API_BASE_URL = window.location.origin;
+        
+        // Check authentication
+        function checkAuthentication() {
+            const token = localStorage.getItem('access_token');
+            if (!token) {
+                window.location.href = '/static/auth.html';
+                return false;
+            }
+            return token;
+        }
+        
+        // Show message
+        function showMessage(message, type = 'success') {
+            const messageDiv = document.getElementById('messageDiv');
+            messageDiv.innerHTML = `<div class="${type}">${message}</div>`;
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                messageDiv.innerHTML = '';
+            }, 5000);
+        }
+        
+        // Format date
+        function formatDate(dateString) {
+            if (!dateString) return 'Never';
+            return new Date(dateString).toLocaleString();
+        }
+        
+        // Load users
+        async function loadUsers() {
+            const token = checkAuthentication();
+            if (!token) return;
+            
+            try {
+                document.getElementById('loadingDiv').style.display = 'block';
+                document.getElementById('usersTable').style.display = 'none';
+                
+                const response = await fetch(`${API_BASE_URL}/api/admin/users`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.status === 401) {
+                    localStorage.removeItem('access_token');
+                    window.location.href = '/static/auth.html';
+                    return;
+                }
+                
+                if (response.status === 403) {
+                    showMessage('Access denied. Admin privileges required.', 'error');
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayUsers(data.users);
+                } else {
+                    showMessage(data.error || 'Failed to load users', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error loading users:', error);
+                showMessage('Connection error. Please try again.', 'error');
+            } finally {
+                document.getElementById('loadingDiv').style.display = 'none';
+            }
+        }
+        
+        // Display users in table
+        function displayUsers(users) {
+            const tbody = document.getElementById('usersTableBody');
+            tbody.innerHTML = '';
+            
+            users.forEach(user => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${user.id}</td>
+                    <td>${user.email}</td>
+                    <td>${user.nickname || 'Not set'}</td>
+                    <td>
+                        <span class="role-badge ${user.role === 'LID_USER' ? 'role-lid' : 'role-reg'}">
+                            ${user.role}
+                        </span>
+                    </td>
+                    <td class="${user.isActive ? 'status-active' : 'status-inactive'}">
+                        ${user.isActive ? 'Active' : 'Inactive'}
+                    </td>
+                    <td>${formatDate(user.createdAt)}</td>
+                    <td>${formatDate(user.lastLogin)}</td>
+                    <td>${user.loginCount}</td>
+                    <td>
+                        <div class="actions">
+                            <select class="role-select" id="role-${user.id}" onchange="updateUserRole(${user.id})">
+                                <option value="REG_USER" ${user.role === 'REG_USER' ? 'selected' : ''}>REG_USER</option>
+                                <option value="LID_USER" ${user.role === 'LID_USER' ? 'selected' : ''}>LID_USER</option>
+                            </select>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('usersTable').style.display = 'table';
+        }
+        
+        // Update user role
+        async function updateUserRole(userId) {
+            const token = checkAuthentication();
+            if (!token) return;
+            
+            const roleSelect = document.getElementById(`role-${userId}`);
+            const newRole = roleSelect.value;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/admin/users/${userId}/role`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ role: newRole })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showMessage(`User role updated to ${newRole}`, 'success');
+                    // Refresh users to show updated data
+                    setTimeout(() => loadUsers(), 1000);
+                } else {
+                    showMessage(data.error || 'Failed to update user role', 'error');
+                    // Revert select value
+                    roleSelect.value = roleSelect.dataset.originalValue;
+                }
+                
+            } catch (error) {
+                console.error('Error updating user role:', error);
+                showMessage('Connection error. Please try again.', 'error');
+            }
+        }
+        
+        // Refresh users
+        function refreshUsers() {
+            loadUsers();
+        }
+        
+        // Logout function
+        function logout() {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user_data');
+            window.location.href = '/static/auth.html';
+        }
+        
+        // Initialize page
+        window.addEventListener('load', () => {
+            if (checkAuthentication()) {
+                loadUsers();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 
 # Import our modules (handle both relative and absolute imports)
 try:
-    from .auth import authenticate_api_key, verify_token, authenticate_user, register_user
+    from .auth_db import send_login_code, verify_login_code, authenticate_api_key, verify_token, db_auth_manager
     from .ai_service import get_ai_prediction, analyze_smart_money, update_ai_model, get_ai_model_info
     from .database import save_trade_data, save_ai_prediction, update_account_data, get_performance_statistics
 except ImportError:
@@ -24,7 +24,7 @@ except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from auth import authenticate_api_key, verify_token, authenticate_user, register_user
+    from auth_db import send_login_code, verify_login_code, authenticate_api_key, verify_token, db_auth_manager
     from ai_service import get_ai_prediction, analyze_smart_money, update_ai_model, get_ai_model_info
     from database import save_trade_data, save_ai_prediction, update_account_data, get_performance_statistics
 
@@ -60,6 +60,32 @@ market_data = {
 market_data_cache = {}
 symbol_subscriptions = set()
 
+def authenticate_request():
+    """Helper function to authenticate requests"""
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+        
+        async def verify_token_async():
+            await db_auth_manager.connect()
+            try:
+                return await verify_token(token)
+            finally:
+                await db_auth_manager.disconnect()
+                
+        return asyncio.run(verify_token_async())
+    else:
+        api_key = request.headers.get('X-API-Key', '')
+        
+        async def verify_api_key_async():
+            await db_auth_manager.connect()
+            try:
+                return await authenticate_api_key(api_key)
+            finally:
+                await db_auth_manager.disconnect()
+                
+        return asyncio.run(verify_api_key_async())
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -70,53 +96,61 @@ def health_check():
         'database_status': 'connected' if DATABASE_URL else 'not_configured'
     })
 
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    """User authentication endpoint"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'No credentials provided'}), 400
-        
-        email = data.get('email')
-        password = data.get('password')
-        
-        if not email or not password:
-            return jsonify({'success': False, 'error': 'Email and password required'}), 400
-        
-        # Use auth module
-        result = authenticate_user(email, password)
-        
-        if result['success']:
-            return jsonify(result)
-        else:
-            return jsonify(result), 401
-            
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/auth/register', methods=['POST'])
-def register():
-    """User registration endpoint"""
+@app.route('/api/auth/send-code', methods=['POST'])
+def send_auth_code():
+    """Send authentication code to email"""
     try:
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'No data provided'}), 400
         
         email = data.get('email')
-        password = data.get('password')
-        name = data.get('name', 'User')
+        if not email:
+            return jsonify({'success': False, 'error': 'Email is required'}), 400
         
-        if not email or not password:
-            return jsonify({'success': False, 'error': 'Email and password required'}), 400
+        # Run async function in event loop
+        async def run_send_code():
+            await db_auth_manager.connect()
+            try:
+                result = await send_login_code(email)
+                return result
+            finally:
+                await db_auth_manager.disconnect()
         
-        # Use auth module
-        result = register_user(email, password, name)
+        result = asyncio.run(run_send_code())
+        return jsonify(result)
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/auth/verify-code', methods=['POST'])
+def verify_auth_code():
+    """Verify authentication code and login"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
         
+        email = data.get('email')
+        code = data.get('code')
+        
+        if not email or not code:
+            return jsonify({'success': False, 'error': 'Email and code are required'}), 400
+        
+        # Run async function in event loop
+        async def run_verify_code():
+            await db_auth_manager.connect()
+            try:
+                result = await verify_login_code(email, code)
+                return result
+            finally:
+                await db_auth_manager.disconnect()
+        
+        result = asyncio.run(run_verify_code())
         if result['success']:
             return jsonify(result)
         else:
-            return jsonify(result), 409
+            return jsonify(result), 401
             
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -126,14 +160,7 @@ def ai_predict():
     """AI prediction endpoint for trading signals"""
     try:
         # Authenticate request
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-            auth_result = verify_token(token)
-        else:
-            api_key = request.headers.get('X-API-Key', '')
-            auth_result = authenticate_api_key(api_key)
-        
+        auth_result = authenticate_request()
         if not auth_result['success']:
             return jsonify({'error': auth_result['error']}), 401
         
@@ -142,7 +169,8 @@ def ai_predict():
             return jsonify({'error': 'No data provided'}), 400
         
         # Validate required fields
-        required_fields = ['symbol', 'timeframe', 'features']
+        required_fields = ['symbol', 'timeframe', 'features'
+        ]
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
             return jsonify({'error': f'Missing required fields: {missing_fields}'}), 400
@@ -365,152 +393,156 @@ def get_dashboard_data():
     """Get dashboard data endpoint"""
     try:
         # Authenticate request
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-            auth_result = verify_token(token)
-        else:
-            api_key = request.headers.get('X-API-Key', '')
-            auth_result = authenticate_api_key(api_key)
-        
+        auth_result = authenticate_request()
         if not auth_result['success']:
             return jsonify({'error': auth_result['error']}), 401
         
+        user = auth_result['user']
+        
+        # Get user's performance data
+        performance_data = get_performance_statistics(user['id'])
+        
+        # Return dashboard data
         return jsonify({
-            'status': 'success',
-            'timestamp': datetime.now().isoformat(),
+            'user': user,
             'statistics': statistics,
             'market_data': market_data,
-            'predictions_cache': predictions_cache,
-            'recent_trades': list(trades_db.values())[-10:],  # Last 10 trades
-            'version': API_VERSION,
-            'ai_model_info': get_ai_model_info()
-        })
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/market/data', methods=['POST'])
-def receive_market_data():
-    """Receive market data from MT5"""
-    try:
-        # Authenticate request
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            api_key = auth_header[7:]
-        else:
-            api_key = request.headers.get('X-API-Key', '')
-        
-        if not api_key:
-            return jsonify({'error': 'API key required'}), 401
-        
-        auth_result = authenticate_api_key(api_key)
-        if not auth_result['success']:
-            return jsonify({'error': auth_result['error']}), 401
-        
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        # Validate required fields
-        required_fields = ['symbol', 'timeframe', 'timestamp', 'open', 'high', 'low', 'close', 'volume']
-        missing_fields = [field for field in required_fields if field not in data]
-        if missing_fields:
-            return jsonify({'error': f'Missing required fields: {missing_fields}'}), 400
-        
-        # Process market data
-        symbol = data['symbol']
-        timeframe = data['timeframe']
-        
-        # Store in cache
-        cache_key = f"{symbol}_{timeframe}"
-        if cache_key not in market_data_cache:
-            market_data_cache[cache_key] = []
-        
-        market_tick = {
-            'symbol': symbol,
-            'timeframe': timeframe,
-            'timestamp': data['timestamp'],
-            'open': float(data['open']),
-            'high': float(data['high']),
-            'low': float(data['low']),
-            'close': float(data['close']),
-            'volume': int(data['volume']),
-            'spread': data.get('spread', 0.0),
-            'indicators': data.get('indicators', {}),
-            'received_at': datetime.now().isoformat()
-        }
-        
-        market_data_cache[cache_key].append(market_tick)
-        
-        # Keep only last 1000 candles per symbol/timeframe
-        if len(market_data_cache[cache_key]) > 1000:
-            market_data_cache[cache_key] = market_data_cache[cache_key][-1000:]
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Market data received',
-            'symbol': symbol,
-            'timeframe': timeframe,
-            'timestamp': market_tick['received_at']
-        })
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/market/signals', methods=['GET'])
-def get_trading_signals():
-    """Get current trading signals for all subscribed symbols"""
-    try:
-        # Authenticate request
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-            auth_result = verify_token(token)
-        else:
-            api_key = request.headers.get('X-API-Key', '')
-            auth_result = authenticate_api_key(api_key)
-        
-        if not auth_result['success']:
-            return jsonify({'error': auth_result['error']}), 401
-        
-        signals = []
-        
-        # Generate signals for each symbol with data
-        for cache_key, price_data in market_data_cache.items():
-            if len(price_data) >= 50:
-                symbol = cache_key.split('_')[0]
-                
-                # Get latest data
-                latest_data = price_data[-1]
-                features = latest_data.get('indicators', {})
-                
-                # Add price features
-                features.update({
-                    'close': latest_data['close'],
-                    'volume': latest_data['volume'],
-                    'spread': latest_data.get('spread', 0)
-                })
-                
-                # Get AI prediction
-                prediction = get_ai_prediction(symbol, features)
-                
-                if prediction['confidence'] > 0.7:  # Only include high-confidence signals
-                    signals.append({
-                        'symbol': symbol,
-                        'signal': prediction['signal'],
-                        'confidence': prediction['confidence'],
-                        'signal_strength': prediction.get('signal_strength', 0),
-                        'market_context': prediction.get('market_context', {}),
-                        'timestamp': prediction['timestamp'],
-                        'current_price': latest_data['close']
-                    })
-        
-        return jsonify({
-            'signals': signals,
-            'total_signals': len(signals),
+            'performance': performance_data,
             'timestamp': datetime.now().isoformat()
         })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/users', methods=['GET'])
+def get_all_users():
+    """Get all users (admin only)"""
+    try:
+        # Authenticate request
+        auth_result = authenticate_request()
+        if not auth_result['success']:
+            return jsonify({'error': auth_result['error']}), 401
+        
+        user = auth_result['user']
+        
+        # Check if user is admin (for now, check if email is admin)
+        if user['email'] != 'admin@svn.com':
+            return jsonify({'error': 'Access denied. Admin privileges required.'}), 403
+        
+        # Get all users from database
+        async def get_users():
+            await db_auth_manager.connect()
+            try:
+                users = await db_auth_manager.db.user.find_many()
+                return [
+                    {
+                        'id': u.id,
+                        'email': u.email,
+                        'nickname': u.nickname,
+                        'role': u.role.value,
+                        'isActive': u.isActive,
+                        'createdAt': u.createdAt.isoformat(),
+                        'lastLogin': u.lastLogin.isoformat() if u.lastLogin else None,
+                        'loginCount': u.loginCount
+                    }
+                    for u in users
+                ]
+            finally:
+                await db_auth_manager.disconnect()
+        
+        users = asyncio.run(get_users())
+        
+        return jsonify({
+            'users': users,
+            'total': len(users)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/users/<int:user_id>/role', methods=['PUT'])
+def update_user_role(user_id):
+    """Update user role (admin only)"""
+    try:
+        # Authenticate request
+        auth_result = authenticate_request()
+        if not auth_result['success']:
+            return jsonify({'error': auth_result['error']}), 401
+        
+        user = auth_result['user']
+        
+        # Check if user is admin
+        if user['email'] != 'admin@svn.com':
+            return jsonify({'error': 'Access denied. Admin privileges required.'}), 403
+        
+        data = request.get_json()
+        if not data or 'role' not in data:
+            return jsonify({'error': 'Role is required'}), 400
+        
+        role = data['role']
+        if role not in ['REG_USER', 'LID_USER']:
+            return jsonify({'error': 'Invalid role. Must be REG_USER or LID_USER'}), 400
+          # Update user role
+        async def update_role():
+            await db_auth_manager.connect()
+            try:
+                updated_user = await db_auth_manager.update_user_role(user_id, role)
+                return updated_user
+            finally:
+                await db_auth_manager.disconnect()
+        
+        result = asyncio.run(update_role())
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'message': 'User role updated successfully',
+                'user': result['user']
+            })
+        else:
+            return jsonify({'error': result['error']}), 400
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/profile', methods=['GET'])
+def get_profile():
+    """Get user profile"""
+    try:
+        # Authenticate request
+        auth_result = authenticate_request()
+        if not auth_result['success']:
+            return jsonify({'error': auth_result['error']}), 401
+        
+        user = auth_result['user']
+        
+        # Get user's API keys
+        async def get_user_profile():
+            await db_auth_manager.connect()
+            try:
+                api_keys = await db_auth_manager.db.apikey.find_many(
+                    where={'userId': user['id'], 'isActive': True}
+                )
+                
+                return {
+                    'user': user,
+                    'api_keys': [
+                        {
+                            'id': k.id,
+                            'name': k.name,
+                            'key': k.key,
+                            'createdAt': k.createdAt.isoformat(),
+                            'lastUsed': k.lastUsed.isoformat() if k.lastUsed else None
+                        }
+                        for k in api_keys
+                    ]
+                }
+            finally:
+                await db_auth_manager.disconnect()
+        
+        profile = asyncio.run(get_user_profile())
+        
+        return jsonify(profile)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
