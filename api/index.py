@@ -27,9 +27,9 @@ except ImportError:
 
 app = Flask(__name__)
 
-# Configuration - ALL SENSITIVE DATA FROM ENVIRONMENT VARIABLES
+# Configuration - ALL from environment variables (Vercel)
 SECRET_KEY = os.environ.get('SECRET_KEY')
-API_KEY = os.environ.get('MT5_API_KEY') 
+API_KEY = os.environ.get('MT5_API_KEY')
 ACCESS_CODE = os.environ.get('ACCESS_CODE')
 
 # Email configuration
@@ -38,34 +38,13 @@ SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 SMTP_EMAIL = os.environ.get('SMTP_EMAIL')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
 
-# Security check - ensure required environment variables are set
-if not SECRET_KEY:
-    print("ERROR: SECRET_KEY environment variable is required!")
-    import sys
-    sys.exit(1)
-if not API_KEY:
-    print("ERROR: MT5_API_KEY environment variable is required!")
-    import sys
-    sys.exit(1)
-if not ACCESS_CODE:
-    print("ERROR: ACCESS_CODE environment variable is required!")
-    import sys
-    sys.exit(1)
-if not SMTP_EMAIL or not SMTP_PASSWORD:
-    print("ERROR: SMTP_EMAIL and SMTP_PASSWORD environment variables are required for email functionality!")
-    import sys
-    sys.exit(1)
-
 # Authorized users and IPs from environment variables
-AUTHORIZED_EMAILS_ENV = os.environ.get('ALLOWED_EMAILS', '')
-if not AUTHORIZED_EMAILS_ENV:
-    raise ValueError("ALLOWED_EMAILS environment variable is required!")
-
-AUTHORIZED_EMAILS = [email.strip().lower() for email in AUTHORIZED_EMAILS_ENV.split(',') if email.strip()]
+AUTHORIZED_EMAILS_ENV = os.environ.get('ALLOWED_EMAILS')
+AUTHORIZED_EMAILS = [email.strip().lower() for email in AUTHORIZED_EMAILS_ENV.split(',') if email.strip()] if AUTHORIZED_EMAILS_ENV else []
 
 # IP whitelist from environment variables
-AUTHORIZED_IPS_ENV = os.environ.get('ALLOWED_IPS', '127.0.0.1,::1')
-AUTHORIZED_IPS = [ip.strip() for ip in AUTHORIZED_IPS_ENV.split(',') if ip.strip()]
+AUTHORIZED_IPS_ENV = os.environ.get('ALLOWED_IPS')
+AUTHORIZED_IPS = [ip.strip() for ip in AUTHORIZED_IPS_ENV.split(',') if ip.strip()] if AUTHORIZED_IPS_ENV else []
 
 # Session management
 active_sessions = {}
@@ -283,10 +262,134 @@ def require_web_auth(f):
     return decorated_function
 
 # Authentication routes
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    """Login page and authentication"""
-    if request.method == 'GET':
+@app.route('/api/send-code', methods=['POST'])
+def send_code():
+    """Send access code to authorized email"""
+    client_ip = get_client_ip()
+    
+    # Check rate limiting
+    if not check_rate_limit(client_ip):
+        return jsonify({
+            'error': 'Pārāk daudz mēģinājumu. Mēģiniet vēlāk.',
+            'locked_until': time.time() + LOCKOUT_TIME
+        }), 429
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    email = data.get('email', '').strip().lower()
+    
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
+    
+    # Check if email is authorized
+    if not is_email_authorized(email):
+        record_failed_attempt(client_ip)
+        return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403
+    
+    # Generate and send access code
+    code = generate_access_code(email)
+    
+    # Try to send email
+    if SMTP_EMAIL and SMTP_PASSWORD:
+        if send_access_code_email(email, code):
+            return jsonify({'message': 'Pieejas kods nosūtīts uz jūsu e-pastu'})
+        else:
+            return jsonify({'error': 'Failed to send email. Please try again.'}), 500
+    else:
+        # For development - return code directly (remove in production)
+        return jsonify({'message': 'Access code sent', 'code': code})
+
+@app.route('/api/verify-code', methods=['POST'])
+def verify_code():
+    """Verify access code and create session"""
+    client_ip = get_client_ip()
+    
+    # Check rate limiting
+    if not check_rate_limit(client_ip):
+        return jsonify({
+            'error': 'Pārāk daudz mēģinājumu. Mēģiniet vēlāk.',
+            'locked_until': time.time() + LOCKOUT_TIME
+        }), 429
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    email = data.get('email', '').strip().lower()
+    code = data.get('code', '').strip()
+    
+    if not email or not code:
+        return jsonify({'error': 'Email and code are required'}), 400
+    
+    # Check if email is authorized
+    if not is_email_authorized(email):
+        record_failed_attempt(client_ip)
+        return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403
+    
+    # Verify access code
+    if not verify_access_code(email, code):
+        record_failed_attempt(client_ip)
+        return jsonify({'error': 'Nepareizs vai novecojis pieejas kods'}), 400
+    
+    # Create session token
+    session_token = generate_session_token(email)
+    
+    # Create response with session cookie
+    response = make_response(jsonify({
+        'message': 'Pieslēgšanās veiksmīga',
+        'token': session_token,
+        'user': email
+    }))
+    
+    # Set secure cookie
+    response.set_cookie(
+        'session_token',
+        session_token,
+        max_age=24*60*60,  # 24 hours
+        httponly=True,
+        secure=True,  # Only send over HTTPS
+        samesite='Strict'
+    )
+    
+    return response
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    """Logout user by clearing session"""
+    response = make_response(jsonify({'message': 'Logged out successfully'}))
+    response.set_cookie('session_token', '', expires=0)
+    return response
+
+# Static file routes
+@app.route('/')
+def index():
+    """Main dashboard - requires authentication"""
+    # Check if user is authenticated
+    token = request.cookies.get('session_token')
+    if not token:
+        return redirect('/login')
+    
+    payload = verify_session_token(token)
+    if not payload:
+        return redirect('/login')
+    
+    # Serve dashboard
+    try:
+        with open('static/index.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return redirect('/dashboard')
+
+@app.route('/login')
+def login_page():
+    """Login page"""
+    try:
+        with open('static/login.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        # Return inline login page
         return """
         <!DOCTYPE html>
         <html lang="lv">
@@ -463,7 +566,7 @@ def login():
                         <div class="form-group">
                             <label for="email">Authorized Email:</label>
                             <input type="email" id="email" name="email" required 
-                                   placeholder="mail">
+                                   placeholder="jūsu@e-pasts.lv">
                         </div>
                         <button type="submit" class="login-btn" id="email-btn">
                             Nosūtīt pieejas kodu
@@ -478,14 +581,14 @@ def login():
                         <div class="form-group">
                             <label for="access_code">Access Code:</label>
                             <input type="text" id="access_code" name="access_code" required 
-                                   placeholder="Enter access code" maxlength="6">
+                                   placeholder="Ievadiet 6-ciparu kodu" maxlength="6">
                         </div>
                         <button type="submit" class="login-btn" id="code-btn">
                             Pieslēgties
                         </button>
                         <button type="button" class="login-btn" id="back-btn" 
                                 style="background: #666; margin-top: 10px;">
-                            Atgriezties
+                            Atpakaļ
                         </button>
                     </form>
                 </div>
@@ -548,7 +651,9 @@ def login():
                             body: JSON.stringify({ email: email })
                         });
                         
-                        const data = await response.json();                        if (response.ok) {
+                        const data = await response.json();
+                        
+                        if (response.ok) {
                             userEmail = email;
                             showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
                             step1.classList.add('hidden');
@@ -593,7 +698,7 @@ def login():
                         const data = await response.json();
                         
                         if (response.ok) {
-                            showSuccess('Pieslēgšanās veiksmīga! Pārsūta...');
+                            showSuccess('Pieslēgšanās veiksmīga! Pārvirza...');
                             setTimeout(() => {
                                 window.location.href = '/dashboard';
                             }, 1500);
@@ -619,132 +724,26 @@ def login():
         </body>
         </html>
         """
-      # This is now handled by the /api/send-code and /api/verify-code endpoints
-    return redirect('/login')
-
-@app.route('/api/send-code', methods=['POST'])
-def send_code():
-    """Send access code to email"""
-    client_ip = get_client_ip()
-    
-    if not check_rate_limit(client_ip):
-        return jsonify({
-            'error': 'Pārāk daudz mēģinājumu. Mēģiniet vēlāk.'
-        }), 429
-    
-    data = request.get_json()
-    if not data or 'email' not in data:
-        return jsonify({'error': 'E-pasta adrese ir nepieciešama'}), 400
-    
-    email = data['email'].strip().lower()
-    
-    # Check if email is authorized
-    if not is_email_authorized(email):
-        record_failed_attempt(client_ip)
-        return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403    # Generate and send access code
-    code = generate_access_code(email)
-    
-    # Try to send email
-    if send_access_code_email(email, code):
-        return jsonify({'message': 'Pieejas kods nosūtīts uz jūsu e-pastu'})
-    else:
-        return jsonify({'error': 'Neizdevās nosūtīt pieejas kodu. Lūdzu, mēģiniet vēlāk.'}), 500
-
-@app.route('/api/verify-code', methods=['POST'])
-def verify_code():
-    """Verify access code and create session"""
-    client_ip = get_client_ip()
-    
-    if not check_rate_limit(client_ip):
-        return jsonify({
-            'error': 'Pārāk daudz mēģinājumu. Mēģiniet vēlāk.'
-        }), 429
-    
-    data = request.get_json()
-    if not data or 'email' not in data or 'code' not in data:
-        return jsonify({'error': 'E-pasta adrese un kods ir nepieciešami'}), 400
-    
-    email = data['email'].strip().lower()
-    code = data['code'].strip()
-    
-    # Check if email is authorized
-    if not is_email_authorized(email):
-        record_failed_attempt(client_ip)
-        return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403
-    
-    # Verify access code
-    if not verify_access_code(email, code):
-        record_failed_attempt(client_ip)
-        return jsonify({'error': 'Nepareizs vai novecojis pieejas kods'}), 401
-    
-    # Generate session token
-    token = generate_session_token(email)
-    
-    # Store session
-    active_sessions[email] = {
-        'token': token,
-        'ip': client_ip,
-        'login_time': time.time()
-    }
-    
-    # Create response with session cookie
-    response = make_response(jsonify({'message': 'Pieslēgšanās veiksmīga'}))
-    response.set_cookie('session_token', token, httponly=True, secure=True, max_age=86400)
-    
-    return response
-
-@app.route('/logout', methods=['POST'])
-def logout():
-    """Logout and clear session"""
-    token = request.cookies.get('session_token')
-    if token:
-        payload = verify_session_token(token)
-        if payload:
-            email = payload.get('email')
-            if email in active_sessions:
-                del active_sessions[email]
-    
-    response = make_response(redirect('/login'))
-    response.set_cookie('session_token', '', expires=0)
-    return response
-
-# Main routes
-@app.route('/')
-def home():
-    """Home page - redirect to login or dashboard"""
-    token = request.cookies.get('session_token')
-    if token and verify_session_token(token):
-        return redirect('/dashboard')
-    return redirect('/login')
-    """Home page - redirect to login or dashboard"""
-    token = request.cookies.get('session_token')
-    if token and verify_session_token(token):
-        return redirect('/dashboard')
-    return redirect('/login')
 
 @app.route('/dashboard')
-@require_web_auth
 def dashboard():
     """Secure dashboard for authorized users"""
-    user_email = request.user_email
+    # Check if user is authenticated
+    token = request.cookies.get('session_token')
+    if not token:
+        return redirect('/login')
     
-    # Try to serve static dashboard file
-    try:
-        import os
-        static_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'index.html')
-        if os.path.exists(static_path):
-            with open(static_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                # Inject user info
-                content = content.replace(
-                    '<p>AI-Powered Smart Money Trading System</p>',
-                    f'<p>AI-Powered Smart Money Trading System</p><p style="opacity: 0.8;">Welcome, {user_email}</p>'
-                )
-                return content
-    except:
-        pass
+    payload = verify_session_token(token)
+    if not payload:
+        return redirect('/login')
     
-    # Fallback dashboard
+    # Check if email is still authorized
+    if not is_email_authorized(payload.get('email', '')):
+        return redirect('/login')
+    
+    user_email = payload.get('email')
+    
+    # Serve dashboard
     return f"""
     <!DOCTYPE html>
     <html>
@@ -769,8 +768,8 @@ def dashboard():
             }}
             .user-bar {{
                 background: rgba(255,255,255,0.2);
-                padding: 10px;
-                border-radius: 5px;
+                padding: 15px;
+                border-radius: 10px;
                 margin-bottom: 20px;
                 display: flex;
                 justify-content: space-between;
@@ -782,13 +781,31 @@ def dashboard():
                 border-radius: 10px;
                 margin: 10px 0;
             }}
-            button {{
+            .logout-btn {{
                 background: #f44336;
                 color: white;
                 border: none;
                 padding: 10px 20px;
                 border-radius: 5px;
                 cursor: pointer;
+                font-size: 14px;
+                transition: all 0.3s ease;
+            }}
+            .logout-btn:hover {{
+                background: #da190b;
+                transform: translateY(-2px);
+            }}
+            .status-green {{
+                color: #4CAF50;
+                font-weight: bold;
+            }}
+            .api-link {{
+                color: #87CEEB;
+                text-decoration: none;
+                transition: color 0.3s ease;
+            }}
+            .api-link:hover {{
+                color: white;
             }}
         </style>
     </head>
@@ -799,24 +816,34 @@ def dashboard():
         </div>
         
         <div class="user-bar">
-            <span>Welcome, {user_email}</span>
+            <span>✅ Welcome, <strong>{user_email}</strong></span>
             <form method="POST" action="/logout" style="display: inline;">
-                <button type="submit">Logout</button>
+                <button type="submit" class="logout-btn">Logout</button>
             </form>
         </div>
         
         <div class="card">
-            <h3>System Status</h3>
-            <p>✅ System Active</p>
+            <h3>📊 System Status</h3>
+            <p class="status-green">✅ System Active</p>
             <p>⏰ Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <p>🔗 API Version: 2.0.0</p>
         </div>
         
         <div class="card">
-            <h3>API Endpoints</h3>
+            <h3>🔗 API Endpoints</h3>
             <ul>
-                <li><a href="/api/health" style="color: white;">Health Check</a></li>
-                <li><a href="/api/dashboard" style="color: white;">Dashboard Data</a></li>
+                <li><a href="/api/health" class="api-link">Health Check</a></li>
+                <li><a href="/api/dashboard-data" class="api-link">Dashboard Data</a></li>
+                <li>POST /api/predict - AI Prediction</li>
+                <li>POST /api/feedback - Trade Feedback</li>
             </ul>
+        </div>
+        
+        <div class="card">
+            <h3>📈 Trading Statistics</h3>
+            <p>Total Trades: {len(trades_data)}</p>
+            <p>Active Predictions: {len(predictions_cache)}</p>
+            <p>Session IP: {request.environ.get('REMOTE_ADDR', 'Unknown')}</p>
         </div>
     </body>
     </html>
@@ -938,16 +965,25 @@ def feedback():
     except Exception as e:
         return jsonify({'error': f'Feedback failed: {str(e)}'}), 500
 
-@app.route('/api/dashboard')
-@require_web_auth
+@app.route('/api/dashboard-data', methods=['GET'])
 def dashboard_data():
-    """Dashboard data endpoint"""
+    """Dashboard data endpoint for authenticated web users"""
+    # Check if user is authenticated
+    token = request.cookies.get('session_token')
+    if not token:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    payload = verify_session_token(token)
+    if not payload:
+        return jsonify({'error': 'Invalid session'}), 401
+    
     return jsonify({
         'status': 'active',
+        'user': payload.get('email'),
         'trades_count': len(trades_data),
         'predictions_count': len(predictions_cache),
-        'last_update': datetime.now().isoformat(),
-        'user': request.user_email
+        'recent_trades': trades_data[-10:],
+        'timestamp': datetime.now().isoformat()
     })
 
 # Error handlers
