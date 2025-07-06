@@ -119,13 +119,13 @@
             border: 1px solid rgba(239, 68, 68, 0.2);
         }
           .success {
-            color: #22c55e;
+            color: #12b2ce;
             text-align: center;
             margin-bottom: 20px;
             padding: 10px;
             border-radius: 5px;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
+            background: rgba(15, 84, 175, 0.1);
+            border: 1px solid rgba(10, 66, 187, 0.2);
         }
         
         .step-indicator {
@@ -253,19 +253,20 @@
                     body: JSON.stringify({ email: email })
                 });
                 
-                const data = await response.json();                if (response.ok) {
+                const data = await response.json();                
+                if (response.ok) {
                     userEmail = email;
-                    showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
+                    showSuccess('CODE sended to ' + email);
                     step1.classList.add('hidden');
                     step2.classList.remove('hidden');
                     document.getElementById('access_code').focus();
                 } else {
-                    showError(data.error || 'Kļūda nosūtot pieejas kodu');
+                    showError(data.error || 'Failed to send access code');
                 }
             } catch (error) {
-                showError('Savienojuma kļūda. Mēģiniet vēlreiz.');
+                showError('Conection error. Please try again.');
             } finally {
-                emailBtn.innerHTML = 'Nosūtīt pieejas kodu';
+                emailBtn.innerHTML = 'Send CODE';
                 emailBtn.disabled = false;
             }
         });
