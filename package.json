@@ -1,7 +1,7 @@
 {
   "name": "svn-trading-bot",
   "version": "1.0.0",
-  "description": "SVN Smart Money Trading Bot with AI - MT5 Integration",
+  "description": "SVN",
   "main": "api/index.py",
   "scripts": {
     "dev": "python -m api.index",
@@ -15,27 +15,23 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/svn-trading-bot.git"
+    "url": "https://github.com/21DP4RKaln/curly-sniffle.git"
   },
-  "keywords": [
-    "trading",
-    "ai",
-    "bot", 
-    "vercel",
-    "serverless",
-    "python",
-    "flask"
-  ],
-  "author": "SVN Team",
+  "author": "sitvain",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/yourusername/svn-trading-bot/issues"
+    "url": "https://github.com/21DP4RKaln/curly-sniffle.git"
   },
-  "homepage": "https://github.com/yourusername/svn-trading-bot#readme",
+  "homepage": "https://github.com/21DP4RKaln/curly-sniffle.git",
   "devDependencies": {
     "vercel": "^32.0.0"
   },
   "engines": {
     "python": "3.9"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "@prisma/extension-accelerate": "^2.0.1",
+    "prisma": "^6.11.1"
   }
 }

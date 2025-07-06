@@ -15,6 +15,10 @@ from typing import Dict, Any, Optional, List
 import re
 import logging
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +28,7 @@ class AuthenticationManager:
     """Authentication and authorization manager"""
     
     def __init__(self):
-        self.secret_key = os.environ.get('SECRET_KEY', 'svn-trading-bot-secret-key-2025')
+        self.secret_key = os.environ.get('SECRET_KEY')
         self.token_expiry_hours = 24
         self.refresh_token_expiry_days = 30
         self.password_reset_expiry_hours = 1
@@ -34,8 +38,7 @@ class AuthenticationManager:
         self.api_keys = {}
         self.password_reset_tokens = {}
         self.refresh_tokens = {}
-        
-        # Email configuration
+          # Email configuration
         self.smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
         self.smtp_port = int(os.environ.get('SMTP_PORT', '587'))
         self.email_user = os.environ.get('EMAIL_USER', '')
@@ -46,8 +49,8 @@ class AuthenticationManager:
     
     def _create_default_admin(self):
         """Create default admin user"""
-        admin_email = 'admin@svn.com'
-        admin_password = 'admin123'
+        admin_email = os.environ.get('ADMIN_EMAIL', 'admin@svn.com')
+        admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
         
         self.users[admin_email] = {
             'email': admin_email,
@@ -60,14 +63,17 @@ class AuthenticationManager:
             'login_count': 0
         }
         
-        # Create API key for admin
-        api_key = '61c2f3467e03e633d25a9bbc3caf05ed990aa6eaa59d2435601309148e48892f'
-        self.api_keys[api_key] = {
-            'user_email': admin_email,
-            'created_at': datetime.now().isoformat(),
-            'last_used': None,
-            'is_active': True
-        }
+        # Create API key for admin from environment variable
+        api_key = os.environ.get('MT5_API_KEY')
+        if api_key:
+            self.api_keys[api_key] = {
+                'user_email': admin_email,
+                'created_at': datetime.now().isoformat(),
+                'last_used': None,
+                'is_active': True
+            }
+        else:
+            logger.warning("MT5_API_KEY not found in environment variables")
     
     def register_user(self, email: str, password: str, name: str = None) -> Dict[str, Any]:
         """Register a new user"""

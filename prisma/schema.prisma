@@ -7,11 +7,9 @@ generator client {
   recursive_type_depth = 5
 }
 
-// Prisma Cloud configuration
 datasource db {
   provider     = "postgresql"
   url          = env("DATABASE_URL")
-  directUrl    = env("DIRECT_URL")
   relationMode = "prisma"
 }
 
@@ -26,7 +24,6 @@ model User {
   lastLogin   DateTime?
   loginCount  Int      @default(0)
   
-  // Auth codes for email-based login
   authCodes   AuthCode[]
   apiKeys     ApiKey[]
   accounts    Account[]
