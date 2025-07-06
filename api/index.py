@@ -10,6 +10,9 @@ import jwt
 import random
 import hashlib
 import time
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, make_response, redirect, url_for
@@ -29,6 +32,12 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 API_KEY = os.environ.get('MT5_API_KEY') 
 ACCESS_CODE = os.environ.get('ACCESS_CODE')
 
+# Email configuration
+SMTP_SERVER = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_EMAIL = os.environ.get('SMTP_EMAIL')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
+
 # Security check - ensure required environment variables are set
 if not SECRET_KEY:
     print("ERROR: SECRET_KEY environment variable is required!")
@@ -42,6 +51,9 @@ if not ACCESS_CODE:
     print("ERROR: ACCESS_CODE environment variable is required!")
     import sys
     sys.exit(1)
+if not SMTP_EMAIL or not SMTP_PASSWORD:
+    print("WARNING: SMTP_EMAIL and SMTP_PASSWORD not set. Email notifications will not work.")
+    # Don't exit, allow system to run without email
 
 # Authorized users and IPs from environment variables
 AUTHORIZED_EMAILS_ENV = os.environ.get('ALLOWED_EMAILS', '')
@@ -122,6 +134,44 @@ def generate_access_code(email):
     }
     return code
 
+def send_access_code_email(email, code):
+    """Send access code via email"""
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        print(f"Email not configured. Access code for {email}: {code}")
+        return False
+    
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_EMAIL
+        msg['To'] = email
+        msg['Subject'] = "SVN Trading Bot - Access Code"
+        
+        body = f"""
+        Your access code for SVN Trading Bot is: {code}
+        
+        This code will expire in 5 minutes.
+        
+        If you did not request this code, please ignore this email.
+        
+        Best regards,
+        SVN Trading Bot Team
+        """
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        text = msg.as_string()
+        server.sendmail(SMTP_EMAIL, email, text)
+        server.quit()
+        
+        print(f"Access code sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send email to {email}: {e}")
+        return False
+
 def verify_access_code(email, code):
     """Verify access code for email"""
     if email not in access_codes:
@@ -140,10 +190,12 @@ def verify_access_code(email, code):
 
 def generate_session_token(email):
     """Generate JWT session token"""
+    from datetime import timezone
+    
     payload = {
         'email': email,
-        'exp': datetime.utcnow() + timedelta(hours=24),
-        'iat': datetime.utcnow(),
+        'exp': datetime.now(timezone.utc) + timedelta(hours=24),
+        'iat': datetime.now(timezone.utc),
         'ip': get_client_ip()
     }
     return jwt.encode(payload, SECRET_KEY, algorithm='HS256')
@@ -240,14 +292,20 @@ def login():
     if request.method == 'GET':
         return """
         <!DOCTYPE html>
-        <html>
+        <html lang="lv">
         <head>
-            <title>SVN Trading Bot - Login</title>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>SVN Trading Bot - Login</title>
             <style>
+                * {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                
                 body {
-                    font-family: 'Segoe UI', sans-serif;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     min-height: 100vh;
                     display: flex;
@@ -255,23 +313,42 @@ def login():
                     justify-content: center;
                     color: white;
                 }
+                
                 .login-container {
-                    background: rgba(255, 255, 255, 0.1);
+                    background: rgba(255, 255, 255, 0.15);
                     padding: 40px;
                     border-radius: 20px;
                     backdrop-filter: blur(10px);
                     max-width: 400px;
                     width: 100%;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
                 }
-                h1 { text-align: center; margin-bottom: 30px; }
+                
+                .login-header {
+                    text-align: center;
+                    margin-bottom: 30px;
+                }
+                
+                .login-header h1 {
+                    font-size: 1.8em;
+                    margin-bottom: 10px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 10px;
+                }
+                
                 .form-group {
                     margin-bottom: 20px;
                 }
+                
                 label {
                     display: block;
-                    margin-bottom: 5px;
-                    font-weight: bold;
+                    margin-bottom: 8px;
+                    font-weight: 500;
+                    color: rgba(255, 255, 255, 0.9);
                 }
+                
                 input {
                     width: 100%;
                     padding: 15px;
@@ -281,80 +358,345 @@ def login():
                     color: white;
                     font-size: 16px;
                     box-sizing: border-box;
+                    transition: all 0.3s ease;
                 }
+                
+                input:focus {
+                    outline: none;
+                    background: rgba(255, 255, 255, 0.3);
+                    transform: scale(1.02);
+                }
+                
                 input::placeholder {
-                    color: rgba(255, 255, 255, 0.7);
+                    color: rgba(255, 255, 255, 0.6);
                 }
-                button {
+                
+                .login-btn {
                     width: 100%;
                     padding: 15px;
                     background: #4CAF50;
                     color: white;
                     border: none;
                     border-radius: 10px;
-                    font-size: 18px;
+                    font-size: 16px;
+                    font-weight: 600;
                     cursor: pointer;
-                    transition: background 0.3s;
+                    transition: all 0.3s ease;
+                    margin-top: 10px;
                 }
-                button:hover {
+                
+                .login-btn:hover {
                     background: #45a049;
+                    transform: translateY(-2px);
                 }
-                .error {
-                    color: #ff6b6b;
-                    text-align: center;
-                    margin-bottom: 20px;
+                
+                .login-btn:disabled {
+                    background: #666;
+                    cursor: not-allowed;
+                    transform: none;
                 }
+                
                 .info {
                     text-align: center;
                     margin-top: 20px;
                     opacity: 0.8;
                     font-size: 14px;
+                    line-height: 1.4;
+                }
+                
+                .error {
+                    color: #ff6b6b;
+                    text-align: center;
+                    margin-bottom: 20px;
+                    padding: 10px;
+                    border-radius: 5px;
+                    background: rgba(255, 107, 107, 0.1);
+                }
+                
+                .success {
+                    color: #4CAF50;
+                    text-align: center;
+                    margin-bottom: 20px;
+                    padding: 10px;
+                    border-radius: 5px;
+                    background: rgba(76, 175, 80, 0.1);
+                }
+                
+                .step-indicator {
+                    text-align: center;
+                    margin-bottom: 20px;
+                    font-size: 14px;
+                    opacity: 0.8;
+                }
+                
+                .hidden {
+                    display: none;
+                }
+                
+                .loading {
+                    display: inline-block;
+                    width: 20px;
+                    height: 20px;
+                    border: 3px solid #f3f3f3;
+                    border-top: 3px solid #4CAF50;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin-right: 10px;
+                }
+                
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
                 }
             </style>
         </head>
         <body>
             <div class="login-container">
-                <h1>🔐 SVN Trading Bot</h1>
-                <form method="POST">
-                    <div class="form-group">
-                        <label for="email">Authorized Email:</label>
-                        <input type="email" id="email" name="email" required 
-                               placeholder="Enter your authorized email">
-                    </div>                    <div class="form-group">
-                        <label for="access_code">Access Code:</label>
-                        <input type="password" id="access_code" name="access_code" required 
-                               placeholder="Enter access code">
-                    </div>
-                    <button type="submit">Login</button>
-                </form>
+                <div class="login-header">
+                    <h1>🔐 SVN Trading Bot</h1>
+                </div>
+                
+                <div id="error-message" class="error hidden"></div>
+                <div id="success-message" class="success hidden"></div>
+                
+                <!-- Step 1: Email Input -->
+                <div id="step1">
+                    <div class="step-indicator">Solis 1: Ievadiet savu e-pasta adresi</div>
+                    <form id="email-form">
+                        <div class="form-group">
+                            <label for="email">Authorized Email:</label>
+                            <input type="email" id="email" name="email" required 
+                                   placeholder="mail">
+                        </div>
+                        <button type="submit" class="login-btn" id="email-btn">
+                            Nosūtīt pieejas kodu
+                        </button>
+                    </form>
+                </div>
+                
+                <!-- Step 2: Access Code Input -->
+                <div id="step2" class="hidden">
+                    <div class="step-indicator">Solis 2: Ievadiet pieejas kodu</div>
+                    <form id="code-form">
+                        <div class="form-group">
+                            <label for="access_code">Access Code:</label>
+                            <input type="text" id="access_code" name="access_code" required 
+                                   placeholder="Enter access code" maxlength="6">
+                        </div>
+                        <button type="submit" class="login-btn" id="code-btn">
+                            Pieslēgties
+                        </button>
+                        <button type="button" class="login-btn" id="back-btn" 
+                                style="background: #666; margin-top: 10px;">
+                            Atgriezties
+                        </button>
+                    </form>
+                </div>
+                
                 <div class="info">
-                    <p>Only authorized users can access this system.</p>
-                    <p>Contact administrator for access credentials.</p>
+                    <p>Tikai autorizēti lietotāji var piekļūt šai sistēmai.</p>
+                    <p>Sazinieties ar administratoru, lai saņemtu pieejas datus.</p>
                 </div>
             </div>
+            
+            <script>
+                const step1 = document.getElementById('step1');
+                const step2 = document.getElementById('step2');
+                const emailForm = document.getElementById('email-form');
+                const codeForm = document.getElementById('code-form');
+                const emailBtn = document.getElementById('email-btn');
+                const codeBtn = document.getElementById('code-btn');
+                const backBtn = document.getElementById('back-btn');
+                const errorMessage = document.getElementById('error-message');
+                const successMessage = document.getElementById('success-message');
+                
+                let userEmail = '';
+                
+                function showError(message) {
+                    errorMessage.textContent = message;
+                    errorMessage.classList.remove('hidden');
+                    successMessage.classList.add('hidden');
+                }
+                
+                function showSuccess(message) {
+                    successMessage.textContent = message;
+                    successMessage.classList.remove('hidden');
+                    errorMessage.classList.add('hidden');
+                }
+                
+                function hideMessages() {
+                    errorMessage.classList.add('hidden');
+                    successMessage.classList.add('hidden');
+                }
+                
+                emailForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    hideMessages();
+                    
+                    const email = document.getElementById('email').value.trim();
+                    if (!email) {
+                        showError('Lūdzu ievadiet e-pasta adresi');
+                        return;
+                    }
+                    
+                    emailBtn.innerHTML = '<span class="loading"></span>Nosūta...';
+                    emailBtn.disabled = true;
+                    
+                    try {
+                        const response = await fetch('/api/send-code', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ email: email })
+                        });
+                        
+                        const data = await response.json();
+                          if (response.ok) {
+                            userEmail = email;
+                            if (data.debug_code) {
+                                showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu. Testa kods: ' + data.debug_code);
+                            } else {
+                                showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
+                            }
+                            step1.classList.add('hidden');
+                            step2.classList.remove('hidden');
+                            document.getElementById('access_code').focus();
+                        } else {
+                            showError(data.error || 'Kļūda nosūtot pieejas kodu');
+                        }
+                    } catch (error) {
+                        showError('Savienojuma kļūda. Mēģiniet vēlreiz.');
+                    } finally {
+                        emailBtn.innerHTML = 'Nosūtīt pieejas kodu';
+                        emailBtn.disabled = false;
+                    }
+                });
+                
+                codeForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    hideMessages();
+                    
+                    const code = document.getElementById('access_code').value.trim();
+                    if (!code) {
+                        showError('Lūdzu ievadiet pieejas kodu');
+                        return;
+                    }
+                    
+                    codeBtn.innerHTML = '<span class="loading"></span>Pārbauda...';
+                    codeBtn.disabled = true;
+                    
+                    try {
+                        const response = await fetch('/api/verify-code', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ 
+                                email: userEmail, 
+                                code: code 
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (response.ok) {
+                            showSuccess('Pieslēgšanās veiksmīga! Pārsūta...');
+                            setTimeout(() => {
+                                window.location.href = '/dashboard';
+                            }, 1500);
+                        } else {
+                            showError(data.error || 'Nepareizs pieejas kods');
+                        }
+                    } catch (error) {
+                        showError('Savienojuma kļūda. Mēģiniet vēlreiz.');
+                    } finally {
+                        codeBtn.innerHTML = 'Pieslēgties';
+                        codeBtn.disabled = false;
+                    }
+                });
+                
+                backBtn.addEventListener('click', () => {
+                    hideMessages();
+                    step2.classList.add('hidden');
+                    step1.classList.remove('hidden');
+                    document.getElementById('access_code').value = '';
+                    document.getElementById('email').focus();
+                });
+            </script>
         </body>
         </html>
         """
-    
-    # POST request - handle login
+      # This is now handled by the /api/send-code and /api/verify-code endpoints
+    return redirect('/login')
+
+@app.route('/api/send-code', methods=['POST'])
+def send_code():
+    """Send access code to email"""
     client_ip = get_client_ip()
     
     if not check_rate_limit(client_ip):
         return jsonify({
-            'error': 'Too many failed attempts. Try again later.'
+            'error': 'Pārāk daudz mēģinājumu. Mēģiniet vēlāk.'
         }), 429
     
-    email = request.form.get('email', '').strip().lower()
-    access_code = request.form.get('access_code', '').strip()
-      # Check if email is authorized
+    data = request.get_json()
+    if not data or 'email' not in data:
+        return jsonify({'error': 'E-pasta adrese ir nepieciešama'}), 400
+    
+    email = data['email'].strip().lower()
+    
+    # Check if email is authorized
     if not is_email_authorized(email):
         record_failed_attempt(client_ip)
-        return jsonify({'error': 'Email not authorized'}), 403
+        return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403
     
-    # Verify access code from environment variable
-    if access_code != ACCESS_CODE:
+    # Generate and send access code
+    code = generate_access_code(email)
+      # Try to send email
+    if send_access_code_email(email, code):
+        return jsonify({'message': 'Pieejas kods nosūtīts uz jūsu e-pastu'})
+    else:
+        # If email fails, still show success for security (don't reveal if email exists)
+        # But log the code for development
+        print(f"DEBUG: Access code for {email}: {code}")
+        
+        # For development, show the code in the response if SMTP is not configured
+        if not SMTP_EMAIL or not SMTP_PASSWORD:
+            return jsonify({
+                'message': 'Pieejas kods nosūtīts uz jūsu e-pastu',
+                'debug_code': code,
+                'debug_message': 'E-pasta sūtīšana nav konfigurēta. Izmantojiet šo kodu testēšanai.'
+            })
+        else:
+            return jsonify({'message': 'Pieejas kods nosūtīts uz jūsu e-pastu'})
+
+@app.route('/api/verify-code', methods=['POST'])
+def verify_code():
+    """Verify access code and create session"""
+    client_ip = get_client_ip()
+    
+    if not check_rate_limit(client_ip):
+        return jsonify({
+            'error': 'Pārāk daudz mēģinājumu. Mēģiniet vēlāk.'
+        }), 429
+    
+    data = request.get_json()
+    if not data or 'email' not in data or 'code' not in data:
+        return jsonify({'error': 'E-pasta adrese un kods ir nepieciešami'}), 400
+    
+    email = data['email'].strip().lower()
+    code = data['code'].strip()
+    
+    # Check if email is authorized
+    if not is_email_authorized(email):
         record_failed_attempt(client_ip)
-        return jsonify({'error': 'Invalid access code'}), 401
+        return jsonify({'error': 'E-pasta adrese nav autorizēta'}), 403
+    
+    # Verify access code
+    if not verify_access_code(email, code):
+        record_failed_attempt(client_ip)
+        return jsonify({'error': 'Nepareizs vai novecojis pieejas kods'}), 401
     
     # Generate session token
     token = generate_session_token(email)
@@ -367,7 +709,7 @@ def login():
     }
     
     # Create response with session cookie
-    response = make_response(redirect('/dashboard'))
+    response = make_response(jsonify({'message': 'Pieslēgšanās veiksmīga'}))
     response.set_cookie('session_token', token, httponly=True, secure=True, max_age=86400)
     
     return response
@@ -390,6 +732,11 @@ def logout():
 # Main routes
 @app.route('/')
 def home():
+    """Home page - redirect to login or dashboard"""
+    token = request.cookies.get('session_token')
+    if token and verify_session_token(token):
+        return redirect('/dashboard')
+    return redirect('/login')
     """Home page - redirect to login or dashboard"""
     token = request.cookies.get('session_token')
     if token and verify_session_token(token):

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVN Trading Bot - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        
+        .login-container {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 40px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header h1 {
+            font-size: 1.8em;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        input {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+        
+        input:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.02);
+        }
+        
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .login-btn {
+            width: 100%;
+            padding: 15px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        .login-btn:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+        
+        .login-btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .info {
+            text-align: center;
+            margin-top: 20px;
+            opacity: 0.8;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .error {
+            color: #ff6b6b;
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            background: rgba(255, 107, 107, 0.1);
+        }
+        
+        .success {
+            color: #4CAF50;
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            background: rgba(76, 175, 80, 0.1);
+        }
+        
+        .step-indicator {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>🔐 SVN Trading Bot</h1>
+        </div>
+        
+        <div id="error-message" class="error hidden"></div>
+        <div id="success-message" class="success hidden"></div>
+        
+        <!-- Step 1: Email Input -->
+        <div id="step1">
+            <div class="step-indicator">Solis 1: Ievadiet savu e-pasta adresi</div>
+            <form id="email-form">
+                <div class="form-group">
+                    <label for="email">Authorized Email:</label>
+                    <input type="email" id="email" name="email" required 
+                           placeholder="mail" value="mail">
+                </div>
+                <button type="submit" class="login-btn" id="email-btn">
+                    Nosūtīt pieejas kodu
+                </button>
+            </form>
+        </div>
+        
+        <!-- Step 2: Access Code Input -->
+        <div id="step2" class="hidden">
+            <div class="step-indicator">Solis 2: Ievadiet pieejas kodu</div>
+            <form id="code-form">
+                <div class="form-group">
+                    <label for="access_code">Access Code:</label>
+                    <input type="text" id="access_code" name="access_code" required 
+                           placeholder="Ievadiet pieejas kodu" maxlength="6">
+                </div>
+                <button type="submit" class="login-btn" id="code-btn">
+                    Pieslēgties
+                </button>
+                <button type="button" class="login-btn" id="back-btn" 
+                        style="background: #666; margin-top: 10px;">
+                    Atgriezties
+                </button>
+            </form>
+        </div>
+        
+        <div class="info">
+            <p>Tikai autorizēti lietotāji var piekļūt šai sistēmai.</p>
+            <p>Sazinieties ar administratoru, lai saņemtu pieejas datus.</p>
+        </div>
+    </div>
+    
+    <script>
+        const step1 = document.getElementById('step1');
+        const step2 = document.getElementById('step2');
+        const emailForm = document.getElementById('email-form');
+        const codeForm = document.getElementById('code-form');
+        const emailBtn = document.getElementById('email-btn');
+        const codeBtn = document.getElementById('code-btn');
+        const backBtn = document.getElementById('back-btn');
+        const errorMessage = document.getElementById('error-message');
+        const successMessage = document.getElementById('success-message');
+        
+        let userEmail = '';
+        
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+            successMessage.classList.add('hidden');
+        }
+        
+        function showSuccess(message) {
+            successMessage.textContent = message;
+            successMessage.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+        }
+        
+        function hideMessages() {
+            errorMessage.classList.add('hidden');
+            successMessage.classList.add('hidden');
+        }
+        
+        emailForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideMessages();
+            
+            const email = document.getElementById('email').value.trim();
+            if (!email) {
+                showError('Lūdzu ievadiet e-pasta adresi');
+                return;
+            }
+            
+            emailBtn.innerHTML = '<span class="loading"></span>Nosūta...';
+            emailBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/send-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email: email })
+                });
+                
+                const data = await response.json();
+                  if (response.ok) {
+                    userEmail = email;
+                    if (data.debug_code) {
+                        showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu. Testa kods: ' + data.debug_code);
+                    } else {
+                        showSuccess('Pieejas kods nosūtīts uz jūsu e-pastu');
+                    }
+                    step1.classList.add('hidden');
+                    step2.classList.remove('hidden');
+                    document.getElementById('access_code').focus();
+                } else {
+                    showError(data.error || 'Kļūda nosūtot pieejas kodu');
+                }
+            } catch (error) {
+                showError('Savienojuma kļūda. Mēģiniet vēlreiz.');
+            } finally {
+                emailBtn.innerHTML = 'Nosūtīt pieejas kodu';
+                emailBtn.disabled = false;
+            }
+        });
+        
+        codeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideMessages();
+            
+            const code = document.getElementById('access_code').value.trim();
+            if (!code) {
+                showError('Lūdzu ievadiet pieejas kodu');
+                return;
+            }
+            
+            codeBtn.innerHTML = '<span class="loading"></span>Pārbauda...';
+            codeBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/verify-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        email: userEmail, 
+                        code: code 
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showSuccess('Pieslēgšanās veiksmīga! Pārsūta...');
+                    setTimeout(() => {
+                        window.location.href = '/dashboard';
+                    }, 1500);
+                } else {
+                    showError(data.error || 'Nepareizs pieejas kods');
+                }
+            } catch (error) {
+                showError('Savienojuma kļūda. Mēģiniet vēlreiz.');
+            } finally {
+                codeBtn.innerHTML = 'Pieslēgties';
+                codeBtn.disabled = false;
+            }
+        });
+        
+        backBtn.addEventListener('click', () => {
+            hideMessages();
+            step2.classList.add('hidden');
+            step1.classList.remove('hidden');
+            document.getElementById('access_code').value = '';
+            document.getElementById('email').focus();
+        });
+        
+        // Focus email field on page load
+        document.getElementById('email').focus();
+    </script>
+</body>
+</html>

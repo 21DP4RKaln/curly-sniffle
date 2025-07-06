@@ -139,22 +139,51 @@
             padding: 20px;
             color: #667eea;
         }
-        
-        .error {
+          .error {
             background: #fed7d7;
             color: #c53030;
             padding: 10px;
             border-radius: 6px;
             margin: 10px 0;
         }
+        
+        .user-bar {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white;
+        }
+        
+        .logout-btn {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        .logout-btn:hover {
+            background: #d32f2f;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
+    <div class="container">        <div class="header">
             <h1>🚀 SVN Trading Bot</h1>
             <p>AI-Powered Smart Money Trading System</p>
             <p id="connectionStatus" class="loading">🔄 Connecting...</p>
+        </div>
+        
+        <div class="user-bar" id="userBar" style="display: none;">
+            <span id="userEmail">Loading...</span>
+            <button class="logout-btn" onclick="logout()">Iziet</button>
         </div>
         
         <div class="dashboard-grid">
@@ -392,12 +421,43 @@
         
         // Initial setup
         updateTimestamp();
-        
-        // Load data when page loads
+          // Load data when page loads
         setTimeout(refreshData, 1000);
         
         // Also check health immediately
         checkHealth();
+        
+        // Logout function
+        function logout() {
+            if (confirm('Vai tiešām vēlaties iziet?')) {
+                fetch('/logout', {
+                    method: 'POST'
+                }).then(() => {
+                    window.location.href = '/login';
+                }).catch(() => {
+                    window.location.href = '/login';
+                });
+            }
+        }
+        
+        // Check if user is logged in and show user bar
+        function checkUserStatus() {
+            fetch('/api/dashboard')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.user) {
+                        document.getElementById('userEmail').textContent = 'Sveiki, ' + data.user;
+                        document.getElementById('userBar').style.display = 'flex';
+                    }
+                })
+                .catch(() => {
+                    // User might not be logged in, redirect to login
+                    window.location.href = '/login';
+                });
+        }
+        
+        // Check user status on page load
+        checkUserStatus();
     </script>
 </body>
 </html>
@@ -642,12 +702,24 @@
                 console.error('Error refreshing data:', error);
             }
         }
-        
-        // Auto-refresh every 30 seconds
+          // Auto-refresh every 30 seconds
         setInterval(refreshData, 30000);
         
         // Initial data load
         refreshData();
+        
+        // Logout function
+        function logout() {
+            if (confirm('Vai tiešām vēlaties iziet?')) {
+                fetch('/logout', {
+                    method: 'POST'
+                }).then(() => {
+                    window.location.href = '/login';
+                }).catch(() => {
+                    window.location.href = '/login';
+                });
+            }
+        }
     </script>
 </body>
 </html>

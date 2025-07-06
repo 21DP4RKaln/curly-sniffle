@@ -1,0 +1,16 @@
+{
+  "name": "svn-trading-dashboard",
+  "version": "1.0.0",
+  "description": "SVN Trading Bot - Public Dashboard",
+  "main": "static/index.html",
+  "scripts": {
+    "start": "echo 'Visit the live dashboard at the deployed URL'"
+  },
+  "keywords": [
+    "trading",
+    "dashboard",
+    "ui"
+  ],
+  "author": "SVN Team",
+  "license": "MIT"
+}

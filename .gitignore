@@ -3,6 +3,19 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# API and sensitive files - HIDE FROM GITHUB
+api/
+*.py
+prisma/
+scripts/
+deploy.*
+setup.*
+*.bat
+*.sh
+README.md
+*.md
+!static/README.md
+
 # C extensions
 *.so
 
