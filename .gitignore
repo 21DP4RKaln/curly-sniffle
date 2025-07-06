@@ -203,3 +203,23 @@ pids
 # Custom application files
 wsgi_content.py
 # Keep the original PythonAnywhere files but don't deploy them
+
+# ⚠️ CRITICAL SECURITY FILES - NEVER COMMIT THESE!
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Configuration files with sensitive data
+config.json
+secrets.json
+private_keys/
+certificates/
+
+# Backup files that might contain sensitive data
+*.backup
+*_backup.*
+*_broken.*
+*.bak

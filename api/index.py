@@ -1,6 +1,6 @@
 """
-Simplified API for Vercel deployment without complex database setup
-Focuses on MT5 bot integration with basic functionality
+Enhanced SVN Trading Bot API with Strong Authentication
+Only authorized emails and IPs can access the system
 """
 
 import os
@@ -8,159 +8,502 @@ import json
 import secrets
 import jwt
 import random
+import hashlib
+import time
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response, redirect, url_for
+
+# Load environment variables from .env file for local development
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not available, skip
+    pass
 
 app = Flask(__name__)
 
-# Configuration
-SECRET_KEY = os.environ.get('SECRET_KEY', 'k9mX#vR2$pL8qN4wE6tY1uI3oP5aS7dF9gH0jK2lZ4xC6vB8nM1qW3eR5tY7uI9oP')
-API_KEY = os.environ.get('MT5_API_KEY', '61c2f3467e03e633d25a9bbc3caf05ed990aa6eaa59d2435601309148e48892f')
+# Configuration - ALL SENSITIVE DATA FROM ENVIRONMENT VARIABLES
+SECRET_KEY = os.environ.get('SECRET_KEY')
+API_KEY = os.environ.get('MT5_API_KEY') 
+ACCESS_CODE = os.environ.get('ACCESS_CODE')
 
-# Simple in-memory storage for demo (in production use proper database)
+# Security check - ensure required environment variables are set
+if not SECRET_KEY:
+    print("ERROR: SECRET_KEY environment variable is required!")
+    import sys
+    sys.exit(1)
+if not API_KEY:
+    print("ERROR: MT5_API_KEY environment variable is required!")
+    import sys
+    sys.exit(1)
+if not ACCESS_CODE:
+    print("ERROR: ACCESS_CODE environment variable is required!")
+    import sys
+    sys.exit(1)
+
+# Authorized users and IPs from environment variables
+AUTHORIZED_EMAILS_ENV = os.environ.get('ALLOWED_EMAILS', '')
+if not AUTHORIZED_EMAILS_ENV:
+    raise ValueError("ALLOWED_EMAILS environment variable is required!")
+
+AUTHORIZED_EMAILS = [email.strip().lower() for email in AUTHORIZED_EMAILS_ENV.split(',') if email.strip()]
+
+# IP whitelist from environment variables
+AUTHORIZED_IPS_ENV = os.environ.get('ALLOWED_IPS', '127.0.0.1,::1')
+AUTHORIZED_IPS = [ip.strip() for ip in AUTHORIZED_IPS_ENV.split(',') if ip.strip()]
+
+# Session management
+active_sessions = {}
+failed_attempts = {}
+access_codes = {}  # Store temporary access codes
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_TIME = 3600  # 1 hour
+
+# Simple in-memory storage
 trades_data = []
 market_data = []
 predictions_cache = {}
 
-# Simple AI Predictor
-class SimpleAIPredictor:
-    def __init__(self):
-        self.training_data = []
+# Security functions
+def get_client_ip():
+    """Get client IP address"""
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    elif request.headers.get('X-Real-IP'):
+        return request.headers.get('X-Real-IP')
+    else:
+        return request.environ.get('REMOTE_ADDR', '0.0.0.0')
+
+def is_ip_authorized(ip):
+    """Check if IP is authorized"""
+    return ip in AUTHORIZED_IPS or ip.startswith('192.168.') or ip.startswith('10.') or ip == '127.0.0.1'
+
+def is_email_authorized(email):
+    """Check if email is authorized"""
+    return email.lower() in [e.lower() for e in AUTHORIZED_EMAILS]
+
+def check_rate_limit(ip):
+    """Check if IP is rate limited"""
+    current_time = time.time()
     
-    def predict(self, features):
-        # Simple prediction logic based on features
-        prediction = random.choice([-1, 0, 1])  # SELL, HOLD, BUY
-        confidence = round(random.uniform(0.6, 0.95), 2)
+    if ip in failed_attempts:
+        attempts, last_attempt = failed_attempts[ip]
         
-        signal_names = {-1: "SELL", 0: "HOLD", 1: "BUY"}
+        # Reset attempts if lockout time has passed
+        if current_time - last_attempt > LOCKOUT_TIME:
+            del failed_attempts[ip]
+            return True
         
-        return {
-            'prediction': prediction,
-            'signal': signal_names[prediction],
-            'confidence': confidence
-        }
+        # Check if IP is locked out
+        if attempts >= MAX_FAILED_ATTEMPTS:
+            return False
+    
+    return True
 
-ai_predictor = SimpleAIPredictor()
+def record_failed_attempt(ip):
+    """Record failed authentication attempt"""
+    current_time = time.time()
+    
+    if ip in failed_attempts:
+        attempts, _ = failed_attempts[ip]
+        failed_attempts[ip] = (attempts + 1, current_time)
+    else:
+        failed_attempts[ip] = (1, current_time)
 
+def generate_access_code(email):
+    """Generate temporary access code for email"""
+    code = str(random.randint(100000, 999999))
+    access_codes[email] = {
+        'code': code,
+        'expires': time.time() + 300,  # 5 minutes
+        'ip': get_client_ip()
+    }
+    return code
+
+def verify_access_code(email, code):
+    """Verify access code for email"""
+    if email not in access_codes:
+        return False
+    
+    stored = access_codes[email]
+    if time.time() > stored['expires']:
+        del access_codes[email]
+        return False
+    
+    if stored['code'] == code:
+        del access_codes[email]
+        return True
+    
+    return False
+
+def generate_session_token(email):
+    """Generate JWT session token"""
+    payload = {
+        'email': email,
+        'exp': datetime.utcnow() + timedelta(hours=24),
+        'iat': datetime.utcnow(),
+        'ip': get_client_ip()
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm='HS256')
+
+def verify_session_token(token):
+    """Verify JWT session token"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+# Decorators
 def require_api_key(f):
     """Decorator to require API key authentication"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        client_ip = get_client_ip()
+        
+        # Check rate limiting
+        if not check_rate_limit(client_ip):
+            return jsonify({
+                'error': 'Too many failed attempts. IP locked for 1 hour.',
+                'locked_until': time.time() + LOCKOUT_TIME
+            }), 429
+        
+        # Check authorization header
         auth_header = request.headers.get('Authorization')
         if not auth_header:
+            record_failed_attempt(client_ip)
             return jsonify({'error': 'Missing Authorization header'}), 401
         
         if not auth_header.startswith('Bearer '):
+            record_failed_attempt(client_ip)
             return jsonify({'error': 'Invalid Authorization format'}), 401
         
         token = auth_header.split(' ')[1]
         if token != API_KEY:
+            record_failed_attempt(client_ip)
             return jsonify({'error': 'Invalid API key'}), 401
+        
+        # Check if IP is authorized for API access
+        if not is_ip_authorized(client_ip):
+            record_failed_attempt(client_ip)
+            return jsonify({
+                'error': 'Unauthorized IP address',
+                'ip': client_ip,
+                'message': 'Contact administrator to authorize your IP'
+            }), 403
         
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route('/', methods=['GET'])
+def require_web_auth(f):
+    """Decorator to require web authentication"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        client_ip = get_client_ip()
+        
+        # Check rate limiting
+        if not check_rate_limit(client_ip):
+            return jsonify({
+                'error': 'Too many failed attempts. IP locked for 1 hour.',
+                'locked_until': time.time() + LOCKOUT_TIME
+            }), 429
+        
+        # Check session token from cookies or headers
+        token = request.cookies.get('session_token') or request.headers.get('X-Session-Token')
+        
+        if not token:
+            return redirect('/login')
+        
+        payload = verify_session_token(token)
+        if not payload:
+            return redirect('/login')
+        
+        # Verify email is still authorized
+        if not is_email_authorized(payload.get('email', '')):
+            return redirect('/login')
+        
+        # Add user info to request
+        request.user_email = payload.get('email')
+        request.user_ip = client_ip
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Authentication routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page and authentication"""
+    if request.method == 'GET':
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>SVN Trading Bot - Login</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {
+                    font-family: 'Segoe UI', sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                }
+                .login-container {
+                    background: rgba(255, 255, 255, 0.1);
+                    padding: 40px;
+                    border-radius: 20px;
+                    backdrop-filter: blur(10px);
+                    max-width: 400px;
+                    width: 100%;
+                }
+                h1 { text-align: center; margin-bottom: 30px; }
+                .form-group {
+                    margin-bottom: 20px;
+                }
+                label {
+                    display: block;
+                    margin-bottom: 5px;
+                    font-weight: bold;
+                }
+                input {
+                    width: 100%;
+                    padding: 15px;
+                    border: none;
+                    border-radius: 10px;
+                    background: rgba(255, 255, 255, 0.2);
+                    color: white;
+                    font-size: 16px;
+                    box-sizing: border-box;
+                }
+                input::placeholder {
+                    color: rgba(255, 255, 255, 0.7);
+                }
+                button {
+                    width: 100%;
+                    padding: 15px;
+                    background: #4CAF50;
+                    color: white;
+                    border: none;
+                    border-radius: 10px;
+                    font-size: 18px;
+                    cursor: pointer;
+                    transition: background 0.3s;
+                }
+                button:hover {
+                    background: #45a049;
+                }
+                .error {
+                    color: #ff6b6b;
+                    text-align: center;
+                    margin-bottom: 20px;
+                }
+                .info {
+                    text-align: center;
+                    margin-top: 20px;
+                    opacity: 0.8;
+                    font-size: 14px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="login-container">
+                <h1>🔐 SVN Trading Bot</h1>
+                <form method="POST">
+                    <div class="form-group">
+                        <label for="email">Authorized Email:</label>
+                        <input type="email" id="email" name="email" required 
+                               placeholder="Enter your authorized email">
+                    </div>                    <div class="form-group">
+                        <label for="access_code">Access Code:</label>
+                        <input type="password" id="access_code" name="access_code" required 
+                               placeholder="Enter access code">
+                    </div>
+                    <button type="submit">Login</button>
+                </form>
+                <div class="info">
+                    <p>Only authorized users can access this system.</p>
+                    <p>Contact administrator for access credentials.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+    
+    # POST request - handle login
+    client_ip = get_client_ip()
+    
+    if not check_rate_limit(client_ip):
+        return jsonify({
+            'error': 'Too many failed attempts. Try again later.'
+        }), 429
+    
+    email = request.form.get('email', '').strip().lower()
+    access_code = request.form.get('access_code', '').strip()
+      # Check if email is authorized
+    if not is_email_authorized(email):
+        record_failed_attempt(client_ip)
+        return jsonify({'error': 'Email not authorized'}), 403
+    
+    # Verify access code from environment variable
+    if access_code != ACCESS_CODE:
+        record_failed_attempt(client_ip)
+        return jsonify({'error': 'Invalid access code'}), 401
+    
+    # Generate session token
+    token = generate_session_token(email)
+    
+    # Store session
+    active_sessions[email] = {
+        'token': token,
+        'ip': client_ip,
+        'login_time': time.time()
+    }
+    
+    # Create response with session cookie
+    response = make_response(redirect('/dashboard'))
+    response.set_cookie('session_token', token, httponly=True, secure=True, max_age=86400)
+    
+    return response
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    """Logout and clear session"""
+    token = request.cookies.get('session_token')
+    if token:
+        payload = verify_session_token(token)
+        if payload:
+            email = payload.get('email')
+            if email in active_sessions:
+                del active_sessions[email]
+    
+    response = make_response(redirect('/login'))
+    response.set_cookie('session_token', '', expires=0)
+    return response
+
+# Main routes
+@app.route('/')
 def home():
-    """Home page - redirect to dashboard"""
+    """Home page - redirect to login or dashboard"""
+    token = request.cookies.get('session_token')
+    if token and verify_session_token(token):
+        return redirect('/dashboard')
+    return redirect('/login')
+
+@app.route('/dashboard')
+@require_web_auth
+def dashboard():
+    """Secure dashboard for authorized users"""
+    user_email = request.user_email
+    
+    # Try to serve static dashboard file
     try:
-        # Serve the main dashboard
         import os
         static_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'index.html')
         if os.path.exists(static_path):
             with open(static_path, 'r', encoding='utf-8') as f:
-                return f.read(), 200, {'Content-Type': 'text/html'}
-        else:
-            # Fallback if static file not found
-            return f"""
-            <!DOCTYPE html>
-            <html lang="lv">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>SVN Trading Bot</title>
-                <style>
-                    body {{
-                        font-family: 'Segoe UI', sans-serif;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        min-height: 100vh;
-                        color: white;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        text-align: center;
-                    }}
-                    .container {{
-                        background: rgba(255,255,255,0.1);
-                        padding: 40px;
-                        border-radius: 20px;
-                        backdrop-filter: blur(10px);
-                    }}
-                    h1 {{ font-size: 3em; margin-bottom: 20px; }}
-                    .status {{ font-size: 1.5em; margin: 20px 0; }}
-                    .links {{ margin-top: 30px; }}
-                    .links a {{
-                        color: white;
-                        text-decoration: none;
-                        background: rgba(255,255,255,0.2);
-                        padding: 10px 20px;
-                        border-radius: 10px;
-                        margin: 0 10px;
-                        display: inline-block;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>🚀 SVN Trading Bot</h1>
-                    <p class="status">✅ Sistēma ir aktīva</p>
-                    <p>AI-Powered Smart Money Trading System</p>
-                    <p>Versija: v1.0.0</p>
-                    <p>Laiks: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                    
-                    <div class="links">
-                        <a href="/api/health">System Health</a>
-                        <a href="/api/dashboard">Dashboard Data</a>
-                        <a href="/dashboard">Full Dashboard</a>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, 200, {'Content-Type': 'text/html'}
-    except Exception as e:
-        return jsonify({
-            'message': 'SVN Trading Bot API',
-            'version': '2.0.0',
-            'status': 'active',
-            'error': str(e),
-            'endpoints': [
-                'GET /api/health - Health check',
-                'POST /api/predict - AI predictions',
-                'POST /api/feedback - Trade feedback',
-                'POST /api/data - Market data upload',
-                'GET /api/dashboard - Dashboard data',
-                'GET /dashboard - Web dashboard'
-            ]
-        })
+                content = f.read()
+                # Inject user info
+                content = content.replace(
+                    '<p>AI-Powered Smart Money Trading System</p>',
+                    f'<p>AI-Powered Smart Money Trading System</p><p style="opacity: 0.8;">Welcome, {user_email}</p>'
+                )
+                return content
+    except:
+        pass
+    
+    # Fallback dashboard
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>SVN Trading Bot - Dashboard</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{
+                font-family: 'Segoe UI', sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                margin: 0;
+                padding: 20px;
+            }}
+            .header {{
+                text-align: center;
+                background: rgba(255,255,255,0.1);
+                padding: 20px;
+                border-radius: 10px;
+                margin-bottom: 20px;
+            }}
+            .user-bar {{
+                background: rgba(255,255,255,0.2);
+                padding: 10px;
+                border-radius: 5px;
+                margin-bottom: 20px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }}
+            .card {{
+                background: rgba(255,255,255,0.1);
+                padding: 20px;
+                border-radius: 10px;
+                margin: 10px 0;
+            }}
+            button {{
+                background: #f44336;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🚀 SVN Trading Bot</h1>
+            <p>AI-Powered Smart Money Trading System</p>
+        </div>
+        
+        <div class="user-bar">
+            <span>Welcome, {user_email}</span>
+            <form method="POST" action="/logout" style="display: inline;">
+                <button type="submit">Logout</button>
+            </form>
+        </div>
+        
+        <div class="card">
+            <h3>System Status</h3>
+            <p>✅ System Active</p>
+            <p>⏰ Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        </div>
+        
+        <div class="card">
+            <h3>API Endpoints</h3>
+            <ul>
+                <li><a href="/api/health" style="color: white;">Health Check</a></li>
+                <li><a href="/api/dashboard" style="color: white;">Dashboard Data</a></li>
+            </ul>
+        </div>
+    </body>
+    </html>
+    """
 
-@app.route('/api/health', methods=['GET'])
+# API routes
+@app.route('/api/health')
 def health():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'version': '1.0.0'
-    })
-
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """Health check endpoint for testing connectivity"""
-    return jsonify({
-        'status': 'ok',
-        'service': 'SVN Trading Bot API',
-        'version': '1.0.0',
-        'timestamp': datetime.now().isoformat()
+        'version': '2.0.0'
     })
 
 @app.route('/api/predict', methods=['POST'])
@@ -237,47 +580,6 @@ def predict():
     except Exception as e:
         return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
-@app.route('/api/predict2', methods=['POST'])
-def predict2():
-    """Alternative prediction endpoint for testing"""
-    try:
-        # Manual authentication check
-        auth_header = request.headers.get('Authorization', '')
-        if not auth_header.startswith('Bearer '):
-            return jsonify({'error': 'Missing Authorization header'}), 401
-        
-        token = auth_header.replace('Bearer ', '')
-        if token != API_KEY:
-            return jsonify({'error': 'Invalid API key'}), 401
-        
-        # Get JSON data
-        try:
-            data = request.get_json()
-        except:
-            return jsonify({'error': 'Invalid JSON data'}), 400
-            
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-            
-        features = data.get('features', [])
-        if len(features) < 10:
-            return jsonify({'error': f'Need at least 10 features, got {len(features)}'}), 400
-        
-        # Simple hardcoded prediction for now
-        prediction = 1  # BUY
-        confidence = 0.75
-        signal = "BUY"
-        
-        return jsonify({
-            'prediction': prediction,
-            'signal': signal,
-            'confidence': confidence,
-            'status': 'success'
-        })
-        
-    except Exception as e:
-        return jsonify({'error': f'Internal error: {str(e)}'}), 500
-
 @app.route('/api/feedback', methods=['POST'])
 @require_api_key
 def feedback():
@@ -301,634 +603,35 @@ def feedback():
         }
         trades_data.append(trade_record)
         
-        # Keep only last 1000 trades in memory
-        if len(trades_data) > 1000:
-            trades_data.pop(0)
-        
-        return jsonify({'status': 'success', 'message': 'Feedback received'})
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/data', methods=['POST'])
-@require_api_key
-def upload_data():
-    """Market data upload endpoint for MT5 bot"""
-    try:
-        data = request.get_json()
-        
-        # Store market data
-        market_record = {
-            'timestamp': data.get('timestamp', datetime.now().isoformat()),
-            'symbol': data.get('symbol', 'UNKNOWN'),
-            'account_id': data.get('account_id'),
-            'balance': data.get('balance', 0.0),
-            'equity': data.get('equity', 0.0),
-            'daily_profit': data.get('daily_profit', 0.0),
-            'max_drawdown': data.get('max_drawdown', 0.0),
-            'total_trades': data.get('total_trades', 0),
-            'winning_trades': data.get('winning_trades', 0),
-            'market_data': data.get('market_data', [])
-        }
-        market_data.append(market_record)
-        
-        # Keep only last 100 market data records in memory
-        if len(market_data) > 100:
-            market_data.pop(0)
-        
-        return jsonify({'status': 'success', 'message': 'Data uploaded'})
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/dashboard', methods=['GET'])
-def dashboard():
-    """Dashboard data endpoint"""
-    try:
-        # Calculate statistics from in-memory data
-        total_trades = len(trades_data)
-        winning_trades = sum(1 for trade in trades_data if trade.get('is_win', False))
-        total_profit = sum(trade.get('profit', 0) for trade in trades_data)
-        
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        
-        # Get recent trades
-        recent_trades = trades_data[-10:] if trades_data else []
-        
-        # Get recent market data
-        recent_market = market_data[-1] if market_data else {}
-        
         return jsonify({
-            'statistics': {
-                'total_trades': total_trades,
-                'winning_trades': winning_trades,
-                'win_rate': round(win_rate, 1),
-                'total_profit': round(total_profit, 2),
-                'active_bots': 1 if market_data else 0,
-                'ai_accuracy': round(win_rate, 1)
-            },
-            'recent_trades': recent_trades,
-            'market_data': recent_market,
+            'status': 'success',
+            'message': 'Feedback received',
             'timestamp': datetime.now().isoformat()
         })
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Feedback failed: {str(e)}'}), 500
 
-@app.route('/api/account/update', methods=['POST'])
-@require_api_key
-def update_account():
-    """Update account information from MT5"""
-    try:
-        data = request.get_json()
-        account_info = {
-            'account_id': data.get('account', data.get('accountId')),
-            'balance': data.get('balance', 0.0),
-            'equity': data.get('equity', 0.0),
-            'margin': data.get('margin', 0.0),
-            'free_margin': data.get('free_margin', 0.0),
-            'leverage': data.get('leverage', 1),
-            'currency': data.get('currency', 'USD'),
-            'broker_name': data.get('brokerName', ''),
-            'server_name': data.get('serverName', ''),
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        # Store in simple in-memory storage
-        if not hasattr(app, 'account_data'):
-            app.account_data = {}
-        app.account_data[account_info['account_id']] = account_info
-        
-        return jsonify({'success': True, 'message': 'Account updated'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/trades/save', methods=['POST'])
-@require_api_key
-def save_trade():
-    """Save trade information from MT5"""
-    try:
-        data = request.get_json()
-        trade_record = {
-            'trade_id': data.get('ticket', data.get('tradeId')),
-            'symbol': data.get('symbol', ''),
-            'type': data.get('type', 0),
-            'volume': data.get('volume', data.get('lotSize', 0.0)),
-            'open_price': data.get('open_price', data.get('openPrice', 0.0)),
-            'close_price': data.get('close_price', data.get('closePrice')),
-            'sl': data.get('sl', data.get('stopLoss')),
-            'tp': data.get('tp', data.get('takeProfit')),
-            'profit': data.get('profit', 0.0),
-            'signal_type': data.get('signal_type', data.get('signal', 0)),
-            'confidence': data.get('confidence', 0.0),
-            'timestamp': data.get('timestamp', datetime.now().isoformat())
-        }
-        
-        trades_data.append(trade_record)
-        
-        # Keep only last 1000 trades
-        if len(trades_data) > 1000:
-            trades_data.pop(0)
-        
-        return jsonify({'success': True, 'message': 'Trade saved'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/analysis/save', methods=['POST'])
-@require_api_key
-def save_analysis():
-    """Save smart money analysis data from MT5"""
-    try:
-        data = request.get_json()
-        analysis_record = {
-            'symbol': data.get('symbol', ''),
-            'ob_signal': data.get('ob_signal', 0),
-            'fvg_signal': data.get('fvg_signal', 0),
-            'bos_signal': data.get('bos_signal', 0),
-            'choch_signal': data.get('choch_signal', 0),
-            'liquidity_signal': data.get('liquidity_signal', 0),
-            'pd_zone': data.get('pd_zone', 0),
-            'overall_score': data.get('overall_score', 0.0),
-            'ai_prediction': data.get('ai_prediction', 0),
-            'ai_confidence': data.get('ai_confidence', 0.0),
-            'final_signal': data.get('final_signal', 0),
-            'timestamp': data.get('timestamp', datetime.now().isoformat())
-        }
-        
-        # Store analysis data
-        if not hasattr(app, 'analysis_data'):
-            app.analysis_data = []
-        app.analysis_data.append(analysis_record)
-        
-        # Keep only last 500 analysis records
-        if len(app.analysis_data) > 500:
-            app.analysis_data.pop(0)
-        
-        return jsonify({'success': True, 'message': 'Analysis saved'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/predictions/save', methods=['POST'])
-@require_api_key
-def save_prediction():
-    """Save AI prediction data from MT5"""
-    try:
-        data = request.get_json()
-        prediction_record = {
-            'symbol': data.get('symbol', ''),
-            'timeframe': data.get('timeframe', ''),
-            'features': data.get('features', {}),
-            'prediction': data.get('prediction', 0),
-            'confidence': data.get('confidence', 0.0),
-            'actual_result': data.get('actualResult'),
-            'timestamp': data.get('timestamp', datetime.now().isoformat())
-        }
-        
-        predictions_cache[f"{prediction_record['symbol']}_{prediction_record['timestamp']}"] = prediction_record
-        
-        return jsonify({'success': True, 'message': 'Prediction saved'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/positions/sync', methods=['POST'])
-@require_api_key
-def sync_positions():
-    """Sync open positions from MT5"""
-    try:
-        data = request.get_json()
-        positions = data.get('positions', [])
-        
-        # Store positions data
-        if not hasattr(app, 'positions_data'):
-            app.positions_data = {}
-        
-        for position in positions:
-            ticket = position.get('ticket')
-            if ticket:
-                app.positions_data[ticket] = {
-                    'ticket': ticket,
-                    'symbol': position.get('symbol', ''),
-                    'type': position.get('type', 0),
-                    'volume': position.get('volume', 0.0),
-                    'price': position.get('price', 0.0),
-                    'sl': position.get('sl', 0.0),
-                    'tp': position.get('tp', 0.0),
-                    'profit': position.get('profit', 0.0),
-                    'timestamp': position.get('timestamp', datetime.now().isoformat())
-                }
-        
-        return jsonify({'success': True, 'message': f'Synced {len(positions)} positions'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/bot-events/save', methods=['POST'])
-@require_api_key
-def save_bot_event():
-    """Save bot events from MT5"""
-    try:
-        data = request.get_json()
-        event_record = {
-            'event_type': data.get('event_type', data.get('event', '')),
-            'description': data.get('description', data.get('message', '')),
-            'additional_data': data.get('additional_data', ''),
-            'timestamp': data.get('timestamp', datetime.now().isoformat())
-        }
-        
-        # Store events
-        if not hasattr(app, 'bot_events'):
-            app.bot_events = []
-        app.bot_events.append(event_record)
-        
-        # Keep only last 200 events
-        if len(app.bot_events) > 200:
-            app.bot_events.pop(0)
-        
-        return jsonify({'success': True, 'message': 'Event saved'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/market-data/save', methods=['POST'])
-@require_api_key
-def save_market_data():
-    """Save market data from MT5"""
-    try:
-        data = request.get_json()
-        market_record = {
-            'symbol': data.get('symbol', ''),
-            'timeframe': data.get('timeframe', ''),
-            'open': data.get('open', 0.0),
-            'high': data.get('high', 0.0),
-            'low': data.get('low', 0.0),
-            'close': data.get('close', 0.0),
-            'volume': data.get('volume', 0),
-            'timestamp': data.get('timestamp', datetime.now().isoformat())
-        }
-        
-        market_data.append(market_record)
-        
-        # Keep only last 1000 market data records
-        if len(market_data) > 1000:
-            market_data.pop(0)
-        
-        return jsonify({'success': True, 'message': 'Market data saved'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/performance/save', methods=['POST'])
-@require_api_key
-def save_performance():
-    """Save performance data from MT5"""
-    try:
-        data = request.get_json()
-        performance_record = {
-            'daily_profit': data.get('daily_profit', 0.0),
-            'total_trades': data.get('total_trades', 0),
-            'winning_trades': data.get('winning_trades', 0),
-            'losing_trades': data.get('losing_trades', 0),
-            'max_drawdown': data.get('max_drawdown', 0.0),
-            'profit_factor': data.get('profit_factor', 0.0),
-            'date': data.get('date', datetime.now().strftime('%Y-%m-%d')),
-            'timestamp': data.get('timestamp', datetime.now().isoformat())
-        }
-        
-        # Store performance data
-        if not hasattr(app, 'performance_data'):
-            app.performance_data = []
-        app.performance_data.append(performance_record)
-        
-        # Keep only last 90 days
-        if len(app.performance_data) > 90:
-            app.performance_data.pop(0)
-        
-        return jsonify({'success': True, 'message': 'Performance data saved'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/logs/save', methods=['POST'])
-@require_api_key
-def save_log():
-    """Save system logs from MT5"""
-    try:
-        data = request.get_json()
-        log_record = {
-            'level': data.get('level', 'INFO'),
-            'message': data.get('message', ''),
-            'details': data.get('details', ''),
-            'timestamp': data.get('timestamp', datetime.now().isoformat())
-        }
-        
-        # Store logs
-        if not hasattr(app, 'system_logs'):
-            app.system_logs = []
-        app.system_logs.append(log_record)
-        
-        # Keep only last 1000 log entries
-        if len(app.system_logs) > 1000:
-            app.system_logs.pop(0)
-        
-        return jsonify({'success': True, 'message': 'Log saved'})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-# Dashboard endpoints for viewing data
-@app.route('/api/dashboard/summary', methods=['GET'])
-@require_api_key
-def dashboard_summary():
-    """Get dashboard summary data"""
-    try:
-        # Account data
-        account_data = getattr(app, 'account_data', {})
-        latest_account = list(account_data.values())[-1] if account_data else {}
-        
-        # Trades summary
-        total_trades = len(trades_data)
-        winning_trades = len([t for t in trades_data if t.get('profit', 0) > 0])
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        
-        # Recent events
-        recent_events = getattr(app, 'bot_events', [])[-10:]
-        
-        summary = {
-            'account': latest_account,
-            'trading_stats': {
-                'total_trades': total_trades,
-                'winning_trades': winning_trades,
-                'win_rate': round(win_rate, 2)
-            },
-            'recent_events': recent_events,
-            'bot_status': 'active' if recent_events else 'inactive',
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        return jsonify({'success': True, 'data': summary})
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+@app.route('/api/dashboard')
+@require_web_auth
+def dashboard_data():
+    """Dashboard data endpoint"""
+    return jsonify({
+        'status': 'active',
+        'trades_count': len(trades_data),
+        'predictions_count': len(predictions_cache),
+        'last_update': datetime.now().isoformat(),
+        'user': request.user_email
+    })
 
 # Error handlers
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({'error': 'Endpoint not found'}), 404
+    return jsonify({'error': 'Not found'}), 404
 
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
-@app.route('/dashboard', methods=['GET'])
-def dashboard_html():
-    """Serve dashboard HTML"""
-    try:
-        import os
-        # Try multiple possible paths for the dashboard
-        possible_paths = [
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'index.html'),
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dashboard.html'),
-            os.path.join(os.path.dirname(__file__), '..', 'static', 'index.html'),
-            os.path.join(os.path.dirname(__file__), '..', 'dashboard.html')
-        ]
-        
-        for dashboard_path in possible_paths:
-            if os.path.exists(dashboard_path):
-                with open(dashboard_path, 'r', encoding='utf-8') as f:
-                    return f.read(), 200, {'Content-Type': 'text/html'}
-        
-        # If no static file found, return inline dashboard
-        return """
-        <!DOCTYPE html>
-        <html lang="lv">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>SVN Trading Bot Dashboard</title>
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body {
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    color: #333;
-                }
-                .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-                .header { text-align: center; margin-bottom: 30px; color: white; }
-                .header h1 { font-size: 2.5em; margin-bottom: 10px; }
-                .header p { font-size: 1.2em; opacity: 0.9; }
-                .dashboard-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                    gap: 20px;
-                    margin-bottom: 30px;
-                }
-                .card {
-                    background: white;
-                    border-radius: 12px;
-                    padding: 25px;
-                    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-                    transition: transform 0.3s ease;
-                }
-                .card:hover { transform: translateY(-5px); }
-                .card h3 { color: #4a5568; margin-bottom: 15px; font-size: 1.3em; }
-                .metric {
-                    display: flex;
-                    justify-content: space-between;
-                    margin-bottom: 10px;
-                    padding: 8px 0;
-                    border-bottom: 1px solid #e2e8f0;
-                }
-                .metric:last-child { border-bottom: none; }
-                .metric-value { font-weight: bold; color: #2d3748; }
-                .positive { color: #48bb78; }
-                .status-indicator {
-                    display: inline-block;
-                    width: 12px;
-                    height: 12px;
-                    border-radius: 50%;
-                    margin-right: 8px;
-                    background: #48bb78;
-                }
-                .refresh-btn {
-                    background: #667eea;
-                    color: white;
-                    border: none;
-                    padding: 12px 24px;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 1em;
-                    margin-top: 20px;
-                }
-                .refresh-btn:hover { background: #5a67d8; }
-                .footer { text-align: center; margin-top: 40px; color: white; opacity: 0.8; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🚀 SVN Trading Bot</h1>
-                    <p>AI-Powered Smart Money Trading System</p>
-                </div>
-                
-                <div class="dashboard-grid">
-                    <div class="card">
-                        <h3><span class="status-indicator"></span>System Status</h3>
-                        <div class="metric">
-                            <span>API Status</span>
-                            <span class="metric-value positive">Online</span>
-                        </div>
-                        <div class="metric">
-                            <span>Bot Version</span>
-                            <span class="metric-value">v1.0.0</span>
-                        </div>
-                        <div class="metric">
-                            <span>Last Update</span>
-                            <span class="metric-value" id="lastUpdate">""" + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + """</span>
-                        </div>
-                        <div class="metric">
-                            <span>Uptime</span>
-                            <span class="metric-value">99.9%</span>
-                        </div>
-                    </div>
-                    
-                    <div class="card">
-                        <h3>Trading Performance</h3>
-                        <div class="metric">
-                            <span>Total Trades</span>
-                            <span class="metric-value" id="totalTrades">0</span>
-                        </div>
-                        <div class="metric">
-                            <span>Win Rate</span>
-                            <span class="metric-value positive" id="winRate">0%</span>
-                        </div>
-                        <div class="metric">
-                            <span>Total Profit</span>
-                            <span class="metric-value positive" id="totalProfit">$0.00</span>
-                        </div>
-                        <div class="metric">
-                            <span>Active Positions</span>
-                            <span class="metric-value" id="activePositions">0</span>
-                        </div>
-                    </div>
-                    
-                    <div class="card">
-                        <h3>AI Performance</h3>
-                        <div class="metric">
-                            <span>AI Accuracy</span>
-                            <span class="metric-value positive">75%</span>
-                        </div>
-                        <div class="metric">
-                            <span>Predictions Today</span>
-                            <span class="metric-value" id="predictionsToday">0</span>
-                        </div>
-                        <div class="metric">
-                            <span>Confidence Avg</span>
-                            <span class="metric-value">82%</span>
-                        </div>
-                        <div class="metric">
-                            <span>Model Status</span>
-                            <span class="metric-value positive">Active</span>
-                        </div>
-                    </div>
-                    
-                    <div class="card">
-                        <h3>Account Info</h3>
-                        <div class="metric">
-                            <span>Balance</span>
-                            <span class="metric-value" id="balance">$0.00</span>
-                        </div>
-                        <div class="metric">
-                            <span>Equity</span>
-                            <span class="metric-value" id="equity">$0.00</span>
-                        </div>
-                        <div class="metric">
-                            <span>Free Margin</span>
-                            <span class="metric-value" id="freeMargin">$0.00</span>
-                        </div>
-                        <div class="metric">
-                            <span>Margin Level</span>
-                            <span class="metric-value" id="marginLevel">0%</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="background: white; border-radius: 12px; padding: 25px; margin-top: 20px;">
-                    <h3>API Endpoints</h3>
-                    <div style="font-family: monospace; background: #f7fafc; padding: 10px; margin: 8px 0; border-radius: 6px; border-left: 4px solid #667eea;">GET /api/health - Health check</div>
-                    <div style="font-family: monospace; background: #f7fafc; padding: 10px; margin: 8px 0; border-radius: 6px; border-left: 4px solid #667eea;">POST /api/predict - AI predictions</div>
-                    <div style="font-family: monospace; background: #f7fafc; padding: 10px; margin: 8px 0; border-radius: 6px; border-left: 4px solid #667eea;">GET /api/dashboard - Dashboard data</div>
-                    <button class="refresh-btn" onclick="refreshData()">🔄 Refresh Data</button>
-                </div>
-                
-                <div class="footer">
-                    <p>© 2025 SVN Trading Bot | Powered by AI & Smart Money Concepts</p>
-                </div>
-            </div>
-            
-            <script>
-                async function refreshData() {
-                    try {
-                        const response = await fetch('/api/dashboard');
-                        const data = await response.json();
-                        
-                        if (data.statistics) {
-                            document.getElementById('totalTrades').textContent = data.statistics.total_trades || 0;
-                            document.getElementById('winRate').textContent = (data.statistics.win_rate || 0) + '%';
-                            document.getElementById('totalProfit').textContent = '$' + (data.statistics.total_profit || 0).toFixed(2);
-                        }
-                        
-                        if (data.market_data) {
-                            document.getElementById('balance').textContent = '$' + (data.market_data.balance || 0).toFixed(2);
-                            document.getElementById('equity').textContent = '$' + (data.market_data.equity || 0).toFixed(2);
-                            document.getElementById('freeMargin').textContent = '$' + (data.market_data.free_margin || 0).toFixed(2);
-                        }
-                        
-                        document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
-                    } catch (error) {
-                        console.error('Error refreshing data:', error);
-                    }
-                }
-                
-                // Auto-refresh every 30 seconds
-                setInterval(refreshData, 30000);
-                
-                // Initial data load
-                refreshData();
-            </script>
-        </body>
-        </html>
-        """, 200, {'Content-Type': 'text/html'}
-        
-    except Exception as e:
-        return f"""
-        <!DOCTYPE html>
-        <html>
-        <head><title>SVN Trading Bot Dashboard</title></head>
-        <body>
-            <h1>🚀 SVN Trading Bot Dashboard</h1>
-            <p>Welcome to the SVN Trading Bot Dashboard!</p>
-            <p>API Status: ✅ Online</p>
-            <p>Bot Version: v1.0.0</p>
-            <p>Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            <p>Error: {str(e)}</p>
-            <div>
-                <h3>API Endpoints:</h3>
-                <ul>
-                    <li><a href="/api/health">Health Check</a></li>
-                    <li><a href="/api/dashboard">Dashboard Data</a></li>
-                </ul>
-            </div>
-        </body>
-        </html>
-        """, 200, {'Content-Type': 'text/html'}
-
-# For Vercel
-app = app
-
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True)

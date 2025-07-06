@@ -27,9 +27,11 @@
       "src": "/(.*)",
       "dest": "/api/index.py"
     }
-  ],
-  "env": {
+  ],  "env": {
     "SECRET_KEY": "@secret_key",
-    "MT5_API_KEY": "@mt5_api_key"
+    "MT5_API_KEY": "@mt5_api_key", 
+    "ALLOWED_EMAILS": "@allowed_emails",
+    "ACCESS_CODE": "@access_code",
+    "ALLOWED_IPS": "@allowed_ips"
   }
 }
