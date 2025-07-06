@@ -1,7 +1,29 @@
-# Minimal requirements for Vercel deployment
+# Core Flask dependencies
 Flask==2.3.3
 Flask-CORS==4.0.0
+
+# Environment and configuration
 python-dotenv==1.0.0
+
+# HTTP requests
 requests==2.31.0
+
+# JWT for authentication
 PyJWT==2.8.0
-# Email functionality (built-in smtplib and email modules are used)
+
+# Database (if using PostgreSQL)
+psycopg2-binary==2.9.7
+
+# AI/ML libraries
+numpy==1.24.3
+scipy==1.11.1
+
+# Data handling
+pandas==2.0.3
+
+# JSON handling (built-in)
+# Email functionality (built-in smtplib and email modules)
+# Logging (built-in)
+
+# For production deployment
+gunicorn==21.2.0

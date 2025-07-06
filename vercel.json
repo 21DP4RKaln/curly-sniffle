@@ -17,15 +17,35 @@
     },
     {
       "src": "/dashboard",
-      "dest": "/api/index.py"
+      "dest": "/static/dashboard.html"
+    },
+    {
+      "src": "/login",
+      "dest": "/static/auth.html"
+    },
+    {
+      "src": "/auth",
+      "dest": "/static/auth.html"
     },
     {
       "src": "/static/(.*)",
       "dest": "/static/$1"
     },
     {
+      "src": "/",
+      "dest": "/static/dashboard.html"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/api/index.py"
+      "dest": "/static/dashboard.html"
     }
-  ]
+  ],
+  "env": {
+    "FLASK_ENV": "production"
+  },
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30
+    }
+  }
 }
