@@ -26,9 +26,11 @@ logger = logging.getLogger(__name__)
 
 class AuthenticationManager:
     """Authentication and authorization manager"""
-    
     def __init__(self):
         self.secret_key = os.environ.get('SECRET_KEY')
+        if not self.secret_key:
+            raise ValueError("SECRET_KEY environment variable is required")
+            
         self.token_expiry_hours = 24
         self.refresh_token_expiry_days = 30
         self.password_reset_expiry_hours = 1
@@ -38,19 +40,23 @@ class AuthenticationManager:
         self.api_keys = {}
         self.password_reset_tokens = {}
         self.refresh_tokens = {}
-          # Email configuration
+        # Email configuration
         self.smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
         self.smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-        self.email_user = os.environ.get('EMAIL_USER', '')
-        self.email_password = os.environ.get('EMAIL_PASSWORD', '')
+        self.email_user = os.environ.get('EMAIL_USER')
+        self.email_password = os.environ.get('EMAIL_PASSWORD')
         
         # Initialize with default admin user
         self._create_default_admin()
-    
     def _create_default_admin(self):
-        """Create default admin user"""
-        admin_email = os.environ.get('ADMIN_EMAIL', 'admin@svn.com')
-        admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
+        """Create default admin user if credentials are provided"""
+        admin_email = os.environ.get('ADMIN_EMAIL')
+        admin_password = os.environ.get('ADMIN_PASSWORD')
+        
+        # Only create admin if both email and password are provided
+        if not admin_email or not admin_password:
+            logger.info("Admin credentials not provided in environment variables")
+            return
         
         self.users[admin_email] = {
             'email': admin_email,
@@ -72,8 +78,8 @@ class AuthenticationManager:
                 'last_used': None,
                 'is_active': True
             }
-        else:
-            logger.warning("MT5_API_KEY not found in environment variables")
+        
+        logger.info("Default admin user created successfully")
     
     def register_user(self, email: str, password: str, name: str = None) -> Dict[str, Any]:
         """Register a new user"""
@@ -380,7 +386,6 @@ class AuthenticationManager:
         if not re.search(r'[0-9]', password):
             return False
         return True
-    
     def _send_welcome_email(self, email: str, name: str):
         """Send welcome email to new user"""
         try:
@@ -388,13 +393,15 @@ class AuthenticationManager:
                 logger.warning("Email configuration not set, skipping welcome email")
                 return
             
+            dashboard_url = os.environ.get('DASHBOARD_URL', 'http://localhost:3000/dashboard')
+            
             subject = "Welcome to SVN Trading Bot"
             body = f"""
             Hello {name},
 
             Welcome to SVN Trading Bot! Your account has been created successfully.
 
-            You can now access your dashboard at: https://your-domain.com/dashboard
+            You can now access your dashboard at: {dashboard_url}
 
             Best regards,
             SVN Trading Bot Team
@@ -404,7 +411,6 @@ class AuthenticationManager:
             
         except Exception as e:
             logger.error(f"Error sending welcome email: {e}")
-    
     def _send_password_reset_email(self, email: str, reset_token: str):
         """Send password reset email"""
         try:
@@ -412,7 +418,8 @@ class AuthenticationManager:
                 logger.warning("Email configuration not set, skipping password reset email")
                 return
             
-            reset_url = f"https://your-domain.com/reset-password?token={reset_token}"
+            base_url = os.environ.get('BASE_URL', 'http://localhost:3000')
+            reset_url = f"{base_url}/reset-password?token={reset_token}"
             
             subject = "Password Reset - SVN Trading Bot"
             body = f"""
