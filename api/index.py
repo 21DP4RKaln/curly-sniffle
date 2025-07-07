@@ -15,8 +15,61 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 # Import our modules (handle both relative and absolute imports)
+# Force simple auth for now to avoid database connection issues
 try:
-    from .auth_db import send_login_code, verify_login_code, authenticate_api_key, verify_token, db_auth_manager
+    from .auth_simple import send_login_code, verify_login_code
+    USE_DATABASE_AUTH = False
+    print("Using simple authentication (no database)")
+    
+    # Create placeholder functions for missing auth functions
+    def authenticate_api_key(api_key):
+        return {'success': False, 'error': 'API key authentication not available in simple mode'}
+    
+    def verify_token(token):
+        return {'success': False, 'error': 'Token verification not available in simple mode'}
+    
+    class MockDBAuthManager:
+        def __init__(self):
+            pass
+        async def connect(self):
+            pass
+        async def disconnect(self):
+            pass
+    
+    db_auth_manager = MockDBAuthManager()
+    
+except ImportError:
+    try:
+        # For standalone execution
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from auth_simple import send_login_code, verify_login_code
+        USE_DATABASE_AUTH = False
+        print("Using simple authentication (no database)")
+        
+        # Create placeholder functions for missing auth functions
+        def authenticate_api_key(api_key):
+            return {'success': False, 'error': 'API key authentication not available in simple mode'}
+        
+        def verify_token(token):
+            return {'success': False, 'error': 'Token verification not available in simple mode'}
+        
+        class MockDBAuthManager:
+            def __init__(self):
+                pass
+            async def connect(self):
+                pass
+            async def disconnect(self):
+                pass
+        
+        db_auth_manager = MockDBAuthManager()
+        
+    except ImportError:
+        print("Could not import authentication modules")
+
+# Import other modules
+try:
     from .ai_service import get_ai_prediction, analyze_smart_money, update_ai_model, get_ai_model_info
     from .database import save_trade_data, save_ai_prediction, update_account_data, get_performance_statistics
 except ImportError:
@@ -24,7 +77,6 @@ except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from auth_db import send_login_code, verify_login_code, authenticate_api_key, verify_token, db_auth_manager
     from ai_service import get_ai_prediction, analyze_smart_money, update_ai_model, get_ai_model_info
     from database import save_trade_data, save_ai_prediction, update_account_data, get_performance_statistics
 
@@ -107,17 +159,21 @@ def send_auth_code():
         email = data.get('email')
         if not email:
             return jsonify({'success': False, 'error': 'Email is required'}), 400
+          # Run async function in event loop
+        if USE_DATABASE_AUTH:
+            async def run_send_code():
+                await db_auth_manager.connect()
+                try:
+                    result = await send_login_code(email)
+                    return result
+                finally:
+                    await db_auth_manager.disconnect()
+            
+            result = asyncio.run(run_send_code())
+        else:
+            # Use simple auth (no database)
+            result = send_login_code(email)
         
-        # Run async function in event loop
-        async def run_send_code():
-            await db_auth_manager.connect()
-            try:
-                result = await send_login_code(email)
-                return result
-            finally:
-                await db_auth_manager.disconnect()
-        
-        result = asyncio.run(run_send_code())
         return jsonify(result)
             
     except Exception as e:
@@ -136,17 +192,21 @@ def verify_auth_code():
         
         if not email or not code:
             return jsonify({'success': False, 'error': 'Email and code are required'}), 400
+          # Run async function in event loop
+        if USE_DATABASE_AUTH:
+            async def run_verify_code():
+                await db_auth_manager.connect()
+                try:
+                    result = await verify_login_code(email, code)
+                    return result
+                finally:
+                    await db_auth_manager.disconnect()
+            
+            result = asyncio.run(run_verify_code())
+        else:
+            # Use simple auth (no database)
+            result = verify_login_code(email, code)
         
-        # Run async function in event loop
-        async def run_verify_code():
-            await db_auth_manager.connect()
-            try:
-                result = await verify_login_code(email, code)
-                return result
-            finally:
-                await db_auth_manager.disconnect()
-        
-        result = asyncio.run(run_verify_code())
         if result['success']:
             return jsonify(result)
         else:

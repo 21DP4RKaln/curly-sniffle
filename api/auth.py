@@ -39,12 +39,11 @@ class AuthenticationManager:
         self.users = {}
         self.api_keys = {}
         self.password_reset_tokens = {}
-        self.refresh_tokens = {}
-        # Email configuration
-        self.smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
+        self.refresh_tokens = {}        # Email configuration
+        self.smtp_server = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
         self.smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-        self.email_user = os.environ.get('EMAIL_USER')
-        self.email_password = os.environ.get('EMAIL_PASSWORD')
+        self.email_user = os.environ.get('SMTP_USER')
+        self.email_password = os.environ.get('SMTP_PASSWORD')
         
         # Initialize with default admin user
         self._create_default_admin()
