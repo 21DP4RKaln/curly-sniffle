@@ -254,14 +254,14 @@ def ai_predict():
         }
         
         # Save to database
-        save_ai_prediction({
+        asyncio.run(save_ai_prediction({
             'prediction_id': prediction_id,
             'symbol': symbol,
             'timeframe': timeframe,
             'features': features,
             'prediction': prediction['signal'],
             'confidence': prediction['confidence']
-        })
+        }))
         
         return jsonify({
             'prediction_id': prediction_id,
@@ -389,7 +389,7 @@ def save_trade():
         }
         
         trades_db[trade_id] = trade_data
-        save_trade_data(trade_data)
+        asyncio.run(save_trade_data(trade_data))
         
         # Update active positions count
         active_count = sum(1 for trade in trades_db.values() if trade.get('is_active', True))
@@ -437,7 +437,7 @@ def update_account():
         market_data['last_updated'] = datetime.now().isoformat()
         
         # Save to database
-        update_account_data(data)
+        asyncio.run(update_account_data(data))
         
         return jsonify({
             'status': 'success',
@@ -460,7 +460,7 @@ def get_dashboard_data():
         user = auth_result['user']
         
         # Get user's performance data
-        performance_data = get_performance_statistics(user['id'])
+        performance_data = asyncio.run(get_performance_statistics(user['id']))
         
         # Return dashboard data
         return jsonify({

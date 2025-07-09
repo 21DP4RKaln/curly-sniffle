@@ -8,6 +8,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 import json
 import logging
+import asyncio
 from typing import Dict, List, Any, Optional
 
 from .auth import authenticate_api_key, verify_token
@@ -83,7 +84,7 @@ def receive_market_data():
             market_data_cache[cache_key] = market_data_cache[cache_key][-1000:]
         
         # Save to database (async)
-        save_market_tick(market_tick)
+        asyncio.run(save_market_tick(market_tick))
         
         return jsonify({
             'status': 'success',
